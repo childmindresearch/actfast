@@ -11,9 +11,14 @@ Usage
 
 ```python
 import actfast
-import pandas as pd
 
-data = actfast.read_gt3x(r"..\..\testdata\NDARAA948VFH.gt3x")
+data = actfast.read_gt3x("data/NDARAA948VFH.gt3x")
+```
+    
+If you want a similar pandas dataframe as gt3xpy has:
+
+```python
+import pandas as pd
 
 df = pd.DataFrame.from_dict({
     "Timestamp": data["datetime"],
