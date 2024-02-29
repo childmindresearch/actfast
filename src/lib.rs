@@ -14,6 +14,7 @@ const GT3X_FILE_LOG: &str = "log.bin";
 
 #[derive(Debug)]
 enum LogRecordType {
+    Unknown,
     Activity,
     Battery,
     Event,
@@ -28,6 +29,8 @@ enum LogRecordType {
     HeartRateBle,
     Epoch3,
     Epoch4,
+    FifoError,
+    FifoDump,
     Parameters,
     SensorSchema,
     SensorData,
@@ -51,11 +54,13 @@ impl LogRecordType {
             0x0E => LogRecordType::HeartRateBle,
             0x0F => LogRecordType::Epoch3,
             0x10 => LogRecordType::Epoch4,
+            0x13 => LogRecordType::FifoError,
+            0x14 => LogRecordType::FifoDump,
             0x15 => LogRecordType::Parameters,
             0x18 => LogRecordType::SensorSchema,
             0x19 => LogRecordType::SensorData,
             0x1A => LogRecordType::Activity2,
-            _ => panic!("Unknown record type: {:x}", val),
+            _ => LogRecordType::Unknown,
         }
     }
 }
@@ -282,6 +287,12 @@ fn load_data(path: String) -> AccelerometerData {
                 }
 
                 match LogRecordType::from_u8(record_header.record_type) {
+                    LogRecordType::Unknown => {
+                        println!("Unknown record type: {:?}", record_header.record_type);
+
+                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
+                        log.read_exact(&mut buffer).unwrap();
+                    }
                     /*LogRecordType::Metadata => {
                         let mut buffer = vec![0u8; record_header.record_size as usize + 1];
                         log.read_exact(&mut buffer).unwrap();
