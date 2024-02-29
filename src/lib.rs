@@ -6,10 +6,10 @@ use pyo3::types::PyDict;
 use std::{
     collections::HashMap,
     fs,
-    io::{BufRead, BufReader, Read},
+    io::{BufReader, Read},
 };
 
-const GT3X_FILE_INFO: &str = "info.txt";
+//const GT3X_FILE_INFO: &str = "info.txt";
 const GT3X_FILE_LOG: &str = "log.bin";
 
 #[derive(Debug)]
@@ -230,9 +230,6 @@ impl std::fmt::Display for ParameterType {
     }
 }
 
-
-
-
 struct LogRecordHeader {
     separator: u8,
     record_type: u8,
@@ -289,6 +286,43 @@ struct AccelerometerData {
     metadata: HashMap<String, u32>,
 }
 
+struct LogRecord {
+    header: LogRecordHeader,
+    data: Vec<u8>,
+}
+
+struct LogRecordIterator<R: Read> {
+    buffer: R,
+}
+
+impl<R: Read> LogRecordIterator<R> {
+    fn new(buffer: R) -> LogRecordIterator<R> {
+        LogRecordIterator { buffer: buffer }
+    }
+}
+
+impl<R: Read> Iterator for LogRecordIterator<R> {
+    type Item = LogRecord;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut header = [0u8; 8];
+        match self.buffer.read_exact(&mut header) {
+            Ok(_) => {
+                let record_header = LogRecordHeader::from_bytes(&header);
+
+                let mut data = vec![0u8; record_header.record_size as usize + 1];
+                self.buffer.read_exact(&mut data).unwrap();
+
+                Some(LogRecord {
+                    header: record_header,
+                    data: data,
+                })
+            }
+            Err(_) => None,
+        }
+    }
+}
+
 fn load_data(path: String) -> AccelerometerData {
     let fname = std::path::Path::new(&path);
     let file = fs::File::open(fname).unwrap();
@@ -336,135 +370,96 @@ fn load_data(path: String) -> AccelerometerData {
 
     let mut sample_rate = 30;
 
-    loop {
-        let mut header = [0u8; 8];
-        match log.read_exact(&mut header) {
-            Ok(_) => {
-                let record_header = LogRecordHeader::from_bytes(&header);
+    for record in LogRecordIterator::new(&mut log) {
+        if !record.header.valid_seperator() {
+            println!("Invalid separator: {:x}", record.header.separator);
+        }
 
-                if !record_header.valid_seperator() {
-                    println!("Invalid separator: {:x}", record_header.separator);
-                }
+        match LogRecordType::from_u8(record.header.record_type) {
+            LogRecordType::Unknown => {
+                println!("Unknown record type: {:?}", record.header.record_type);
+            }
+            /*LogRecordType::Metadata => {
 
-                match LogRecordType::from_u8(record_header.record_type) {
-                    LogRecordType::Unknown => {
-                        println!("Unknown record type: {:?}", record_header.record_type);
+                // last byte needs to be skipped
+                let metadata = std::str::from_utf8(&buffer[0..buffer.len() - 1]).unwrap();
+                println!("Metadata: {}", metadata);
+            }*/
+            LogRecordType::Parameters => {
+                // last byte needs to be skipped
+                for offset in (0..record.data.len() - 1).step_by(8) {
+                    let param_type = u32::from_le_bytes([
+                        record.data[offset],
+                        record.data[offset + 1],
+                        record.data[offset + 2],
+                        record.data[offset + 3],
+                    ]);
+                    let param_identifier = (param_type >> 16) as u16;
+                    let param_address_space = (param_type & 0xFFFF) as u16;
 
-                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
-                        log.read_exact(&mut buffer).unwrap();
-                    }
-                    /*LogRecordType::Metadata => {
-                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
-                        log.read_exact(&mut buffer).unwrap();
+                    let parameter_type =
+                        ParameterType::from_u16(param_address_space, param_identifier);
 
-                        // last byte needs to be skipped
-                        let metadata = std::str::from_utf8(&buffer[0..buffer.len() - 1]).unwrap();
-                        println!("Metadata: {}", metadata);
-                    }*/
-                    LogRecordType::Parameters => {
-                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
-                        log.read_exact(&mut buffer).unwrap();
-
-                        // last byte needs to be skipped
-                        for offset in (0..buffer.len() - 1).step_by(8) {
-                            let param_type = u32::from_le_bytes([
-                                buffer[offset],
-                                buffer[offset + 1],
-                                buffer[offset + 2],
-                                buffer[offset + 3],
-                            ]);
-                            let param_identifier = (param_type >> 16) as u16;
-                            let param_address_space = (param_type & 0xFFFF) as u16;
-
-                            let parameter_type = ParameterType::from_u16(param_address_space, param_identifier);
-
-                            match parameter_type {
-                                ParameterType::SampleRate => {
-                                    sample_rate = u32::from_le_bytes([
-                                        buffer[offset + 4],
-                                        buffer[offset + 5],
-                                        buffer[offset + 6],
-                                        buffer[offset + 7],
-                                    ]);
-                                }
-                                _ => {}
-                            }
-
-                            match parameter_type {
-                                ParameterType::Unknown => { }
-                                _ => {
-                                    // add to metadata dict
-                                    data.metadata.insert(parameter_type.to_string(),
-                                    u32::from_le_bytes([
-                                        buffer[offset + 4],
-                                        buffer[offset + 5],
-                                        buffer[offset + 6],
-                                        buffer[offset + 7],
-                                    ]));
-                                }
-                            }
-                        }
-                    }
-                    LogRecordType::Activity => {
-                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
-                        log.read_exact(&mut buffer).unwrap();
-
-                        let dt = record_header.datetime();
-
-                        let mut reader = BitReader::new(&buffer[0..buffer.len() - 1]);
-
-                        let mut field = Vec::<i16>::with_capacity(31 * 3);
-
-                        while let Ok(v) = reader.read_i16(12) {
-                            field.push(v);
-                        }
-
-                        for i in (0..field.len()).step_by(3) {
-                            let y = field[i];
-                            let x = field[i + 1];
-                            let z = field[i + 2];
-
-                            let timestamp_nanos = datetime_add_hz(dt, sample_rate, i as u32 / 3)
-                                .timestamp_nanos_opt()
-                                .unwrap();
-
-                            data.time.push(timestamp_nanos);
-                            data.acceleration.extend(&[
-                                x as f32 / 256.0,
-                                y as f32 / 256.0,
-                                z as f32 / 256.0,
+                    match parameter_type {
+                        ParameterType::SampleRate => {
+                            sample_rate = u32::from_le_bytes([
+                                record.data[offset + 4],
+                                record.data[offset + 5],
+                                record.data[offset + 6],
+                                record.data[offset + 7],
                             ]);
                         }
+                        _ => {}
                     }
-                    _ => {
-                        let mut buffer = vec![0u8; record_header.record_size as usize + 1];
-                        log.read_exact(&mut buffer).unwrap();
+
+                    match parameter_type {
+                        ParameterType::Unknown => {}
+                        _ => {
+                            // add to metadata dict
+                            data.metadata.insert(
+                                parameter_type.to_string(),
+                                u32::from_le_bytes([
+                                    record.data[offset + 4],
+                                    record.data[offset + 5],
+                                    record.data[offset + 6],
+                                    record.data[offset + 7],
+                                ]),
+                            );
+                        }
                     }
                 }
+            }
+            LogRecordType::Activity => {
+                let dt = record.header.datetime();
 
-                // count records by type
-                //let count = record_counts.entry(record_header.record_type).or_insert(0);
-                //*count += 1;
+                let mut reader = BitReader::new(&record.data[0..record.data.len() - 1]);
+
+                let mut field = Vec::<i16>::with_capacity(31 * 3);
+
+                while let Ok(v) = reader.read_i16(12) {
+                    field.push(v);
+                }
+
+                for i in (0..field.len()).step_by(3) {
+                    let y = field[i];
+                    let x = field[i + 1];
+                    let z = field[i + 2];
+
+                    let timestamp_nanos = datetime_add_hz(dt, sample_rate, i as u32 / 3)
+                        .timestamp_nanos_opt()
+                        .unwrap();
+
+                    data.time.push(timestamp_nanos);
+                    data.acceleration.extend(&[
+                        x as f32 / 256.0,
+                        y as f32 / 256.0,
+                        z as f32 / 256.0,
+                    ]);
+                }
             }
-            Err(_) => {
-                //println!("EOF");
-                break;
-            }
+            _ => {}
         }
     }
-
-    /*// print number of records by type
-    for (record_type, count) in record_counts.iter() {
-        println!(
-            "Record Type: {:?} ({:x}) - Count: {}",
-            LogRecordType::from_u8(*record_type),
-            record_type,
-            count
-        );
-    }
-
-    let elapsed = now.elapsed();
-    println!("Elapsed: {:.2?}", elapsed);*/
 
     data
 }
