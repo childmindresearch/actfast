@@ -64,7 +64,7 @@ impl LogRecordType {
         }
     }
 }
-/*
+
 #[derive(Debug)]
 enum ParameterType {
     Unknown,
@@ -175,7 +175,6 @@ impl ParameterType {
         }
     }
 }
- */
 
 struct LogRecordHeader {
     separator: u8,
@@ -222,7 +221,7 @@ fn datetime_add_hz(
     sample_counter: u32,
 ) -> chrono::NaiveDateTime {
     dt.checked_add_signed(TimeDelta::nanoseconds(
-        (1_000_000_000 / hz * (sample_counter)) as i64,
+        (1_000_000_000 / hz * sample_counter) as i64,
     ))
     .unwrap()
 }
@@ -276,6 +275,8 @@ fn load_data(path: String) -> AccelerometerData {
 
     //let mut counter = 0;
 
+    let mut sample_rate = 30;
+
     loop {
         let mut header = [0u8; 8];
         match log.read_exact(&mut header) {
@@ -300,14 +301,13 @@ fn load_data(path: String) -> AccelerometerData {
                         // last byte needs to be skipped
                         let metadata = std::str::from_utf8(&buffer[0..buffer.len() - 1]).unwrap();
                         println!("Metadata: {}", metadata);
-                    }
+                    }*/
                     LogRecordType::Parameters => {
                         let mut buffer = vec![0u8; record_header.record_size as usize + 1];
                         log.read_exact(&mut buffer).unwrap();
 
                         // last byte needs to be skipped
-                        let mut offset = 0;
-                        while offset < buffer.len() - 1 {
+                        for offset in (0..buffer.len() - 1).step_by(8) {
                             let param_type = u32::from_le_bytes([
                                 buffer[offset],
                                 buffer[offset + 1],
@@ -317,27 +317,24 @@ fn load_data(path: String) -> AccelerometerData {
                             let param_identifier = (param_type >> 16) as u16;
                             let param_address_space = (param_type & 0xFFFF) as u16;
 
-                            let param_value = u32::from_le_bytes([
-                                buffer[offset + 4],
-                                buffer[offset + 5],
-                                buffer[offset + 6],
-                                buffer[offset + 7],
-                            ]);
-                            println!(
-                                "Parameter: {:?} - Value: {}",
-                                ParameterType::from_u16(param_address_space, param_identifier),
-                                param_value
-                            );
-                            offset += 8;
+                            match ParameterType::from_u16(param_address_space, param_identifier) {
+                                ParameterType::SampleRate => {
+                                    sample_rate = u32::from_le_bytes([
+                                        buffer[offset + 4],
+                                        buffer[offset + 5],
+                                        buffer[offset + 6],
+                                        buffer[offset + 7],
+                                    ]);
+                                }
+                                _ => {}
+                            }
                         }
-                    }*/
+                    }
                     LogRecordType::Activity => {
                         let mut buffer = vec![0u8; record_header.record_size as usize + 1];
                         log.read_exact(&mut buffer).unwrap();
 
                         let dt = record_header.datetime();
-
-                        let mut sample_counter = 0;
 
                         let mut reader = BitReader::new(&buffer[0..buffer.len() - 1]);
 
@@ -352,8 +349,7 @@ fn load_data(path: String) -> AccelerometerData {
                             let x = field[i + 1];
                             let z = field[i + 2];
 
-                            //println!("Activity: Time: {:?} X: {:.3} Y: {:.3} Z: {:.3}", datetime_add_hz(dt, 30, sample_counter), x_cal, y_cal, z_cal);
-                            let timestamp_nanos = datetime_add_hz(dt, 30, sample_counter)
+                            let timestamp_nanos = datetime_add_hz(dt, sample_rate, i as u32 / 3)
                                 .timestamp_nanos_opt()
                                 .unwrap();
 
@@ -363,9 +359,6 @@ fn load_data(path: String) -> AccelerometerData {
                                 y as f32 / 256.0,
                                 z as f32 / 256.0,
                             ]);
-
-                            //counter += 1;
-                            sample_counter += 1;
                         }
                     }
                     _ => {
