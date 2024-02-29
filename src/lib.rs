@@ -176,6 +176,63 @@ impl ParameterType {
     }
 }
 
+impl std::fmt::Display for ParameterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParameterType::Unknown => write!(f, "Unknown"),
+            ParameterType::BatteryState => write!(f, "BatteryState"),
+            ParameterType::BatteryVoltage => write!(f, "BatteryVoltage"),
+            ParameterType::BoardRevision => write!(f, "BoardRevision"),
+            ParameterType::CalibrationTime => write!(f, "CalibrationTime"),
+            ParameterType::FirmwareVersion => write!(f, "FirmwareVersion"),
+            ParameterType::MemorySize => write!(f, "MemorySize"),
+            ParameterType::FeatureCapabilities => write!(f, "FeatureCapabilities"),
+            ParameterType::DisplayCapabilities => write!(f, "DisplayCapabilities"),
+            ParameterType::WirelessFirmwareVersion => write!(f, "WirelessFirmwareVersion"),
+            ParameterType::IMUAccelScale => write!(f, "IMUAccelScale"),
+            ParameterType::IMUGyroScale => write!(f, "IMUGyroScale"),
+            ParameterType::IMUMagScale => write!(f, "IMUMagScale"),
+            ParameterType::AccelScale => write!(f, "AccelScale"),
+            ParameterType::IMUTempScale => write!(f, "IMUTempScale"),
+            ParameterType::IMUTempOffset => write!(f, "IMUTempOffset"),
+            ParameterType::WirelessMode => write!(f, "WirelessMode"),
+            ParameterType::WirelessSerialNumber => write!(f, "WirelessSerialNumber"),
+            ParameterType::FeatureEnable => write!(f, "FeatureEnable"),
+            ParameterType::DisplayConfiguration => write!(f, "DisplayConfiguration"),
+            ParameterType::NegativeGOffsetX => write!(f, "NegativeGOffsetX"),
+            ParameterType::NegativeGOffsetY => write!(f, "NegativeGOffsetY"),
+            ParameterType::NegativeGOffsetZ => write!(f, "NegativeGOffsetZ"),
+            ParameterType::PositiveGOffsetX => write!(f, "PositiveGOffsetX"),
+            ParameterType::PositiveGOffsetY => write!(f, "PositiveGOffsetY"),
+            ParameterType::PositiveGOffsetZ => write!(f, "PositiveGOffsetZ"),
+            ParameterType::SampleRate => write!(f, "SampleRate"),
+            ParameterType::TargetStartTime => write!(f, "TargetStartTime"),
+            ParameterType::TargetStopTime => write!(f, "TargetStopTime"),
+            ParameterType::TimeOfDay => write!(f, "TimeOfDay"),
+            ParameterType::ZeroGOffsetX => write!(f, "ZeroGOffsetX"),
+            ParameterType::ZeroGOffsetY => write!(f, "ZeroGOffsetY"),
+            ParameterType::ZeroGOffsetZ => write!(f, "ZeroGOffsetZ"),
+            ParameterType::HRMSerialNumberH => write!(f, "HRMSerialNumberH"),
+            ParameterType::HRMSerialNumberL => write!(f, "HRMSerialNumberL"),
+            ParameterType::ProximityInterval => write!(f, "ProximityInterval"),
+            ParameterType::IMUNegativeGOffsetX => write!(f, "IMUNegativeGOffsetX"),
+            ParameterType::IMUNegativeGOffsetY => write!(f, "IMUNegativeGOffsetY"),
+            ParameterType::IMUNegativeGOffsetZ => write!(f, "IMUNegativeGOffsetZ"),
+            ParameterType::IMUPositiveGOffsetX => write!(f, "IMUPositiveGOffsetX"),
+            ParameterType::IMUPositiveGOffsetY => write!(f, "IMUPositiveGOffsetY"),
+            ParameterType::IMUPositiveGOffsetZ => write!(f, "IMUPositiveGOffsetZ"),
+            ParameterType::UTCOffset => write!(f, "UTCOffset"),
+            ParameterType::IMUZeroGOffsetX => write!(f, "IMUZeroGOffsetX"),
+            ParameterType::IMUZeroGOffsetY => write!(f, "IMUZeroGOffsetY"),
+            ParameterType::IMUZeroGOffsetZ => write!(f, "IMUZeroGOffsetZ"),
+            ParameterType::SensorConfiguration => write!(f, "SensorConfiguration"),
+        }
+    }
+}
+
+
+
+
 struct LogRecordHeader {
     separator: u8,
     record_type: u8,
@@ -229,6 +286,7 @@ fn datetime_add_hz(
 struct AccelerometerData {
     time: Vec<i64>,
     acceleration: Vec<f32>,
+    metadata: HashMap<String, u32>,
 }
 
 fn load_data(path: String) -> AccelerometerData {
@@ -271,6 +329,7 @@ fn load_data(path: String) -> AccelerometerData {
     let mut data = AccelerometerData {
         time: Vec::with_capacity(50_000_000),
         acceleration: Vec::with_capacity(200_000_000),
+        metadata: HashMap::new(),
     };
 
     //let mut counter = 0;
@@ -317,7 +376,9 @@ fn load_data(path: String) -> AccelerometerData {
                             let param_identifier = (param_type >> 16) as u16;
                             let param_address_space = (param_type & 0xFFFF) as u16;
 
-                            match ParameterType::from_u16(param_address_space, param_identifier) {
+                            let parameter_type = ParameterType::from_u16(param_address_space, param_identifier);
+
+                            match parameter_type {
                                 ParameterType::SampleRate => {
                                     sample_rate = u32::from_le_bytes([
                                         buffer[offset + 4],
@@ -327,6 +388,20 @@ fn load_data(path: String) -> AccelerometerData {
                                     ]);
                                 }
                                 _ => {}
+                            }
+
+                            match parameter_type {
+                                ParameterType::Unknown => { }
+                                _ => {
+                                    // add to metadata dict
+                                    data.metadata.insert(parameter_type.to_string(),
+                                    u32::from_le_bytes([
+                                        buffer[offset + 4],
+                                        buffer[offset + 5],
+                                        buffer[offset + 6],
+                                        buffer[offset + 7],
+                                    ]));
+                                }
                             }
                         }
                     }
@@ -417,6 +492,12 @@ fn read_gt3x(_py: Python, path: &str) -> PyResult<PyObject> {
     let dict = PyDict::new(_py);
     dict.set_item("datetime", datetime_arr)?;
     dict.set_item("data", data_arr)?;
+    // metadata dict
+    let metadata_dict = PyDict::new(_py);
+    for (key, value) in data.metadata.iter() {
+        metadata_dict.set_item(key, value)?;
+    }
+    dict.set_item("metadata", metadata_dict)?;
 
     Ok(dict.into())
 }
