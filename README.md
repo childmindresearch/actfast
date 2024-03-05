@@ -37,7 +37,7 @@ Similar devices might work, but have not been tested. Please open an issue and a
 ```python
 import actfast
 
-subject1 = actfast.read_gt3x("data/subject1.gt3x")
+subject1 = actfast.read_actigraph_gt3x("data/subject1.gt3x")
 ```
     
 If you are using Pandas and want a similar dataframe to what `pygt3x` offers, you can convert the data to a dataframe using the following code snippet:
