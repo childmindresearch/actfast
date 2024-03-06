@@ -27,7 +27,7 @@ This package has been tested with data captured by the following devices:
 
 | Device | Firmware | API |
 | --- | --- | --- |
-| ActiGraph wGT3X-BT |  | `actfast.read_actigraph_gt3x(file)` |
+| ActiGraph wGT3X-BT | `1.9.2` | `actfast.read_actigraph_gt3x(file)` |
 | GENEActiv 1.2 | `Ver06.17 15June23` | `actfast.read_geneactiv_bin(file)` |
 
 Similar devices might work, but have not been tested. Please open an issue and attach a sample file if you have a device that is not supported yet. We will do our best to add support for it.
@@ -45,7 +45,7 @@ If you are using Pandas and want a similar dataframe to what `pygt3x` offers, yo
 ```python
 import pandas as pd
 
-accel = subject1["acceleration"]
+accel = subject1["timeseries"]["acceleration"]
 
 df = pd.DataFrame.from_dict({
     "Timestamp": accel["datetime"],
