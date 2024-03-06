@@ -82,14 +82,24 @@ fn read_actigraph_gt3x(_py: Python, path: &str) -> PyResult<PyObject> {
     dict_battery_voltage.set_item("battery_voltage", np_battery_voltage)?;
 
     // metadata dict
-    let metadata_list = PyList::empty(_py);
+    let dict_metadata = PyDict::new(_py);
+    dict.set_item("metadata", dict_metadata)?;
 
-    for entry in data.metadata.iter() {
+    let metadata_list = PyList::empty(_py);
+    dict_metadata.set_item("metadata", metadata_list)?;
+
+    for entry in data.metadata_json.iter() {
         let entry_json = serde_json::from_str::<serde_json::Value>(entry).unwrap();
         let entry_py = serde_json_to_python(_py, entry_json)?;
         metadata_list.append(entry_py)?;
     }
-    dict.set_item("metadata", metadata_list)?;
+
+    let dict_metadata_info = PyDict::new(_py);
+    dict_metadata.set_item("info", dict_metadata_info)?;
+
+    for (key, value) in data.metadata.iter() {
+        dict_metadata_info.set_item(key, value)?;
+    }
 
     Ok(dict.into())
 }

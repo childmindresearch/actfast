@@ -3,8 +3,7 @@ mod defs;
 use bitreader::BitReader;
 use chrono::TimeDelta;
 use std::{
-    fs,
-    io::{BufReader, Read},
+    collections::HashMap, fs, io::{BufRead, BufReader, Read}
 };
 
 use crate::actigraph::defs::*;
@@ -29,7 +28,25 @@ pub struct AccelerometerData {
     pub capsense: Vec<bool>,
     pub battery_voltage_time: Vec<i64>,
     pub battery_voltage: Vec<u16>,
-    pub metadata: Vec<String>,
+    pub metadata_json: Vec<String>,
+    pub metadata: HashMap<String, String>,
+}
+
+impl AccelerometerData {
+    pub fn new() -> AccelerometerData {
+        AccelerometerData {
+            acceleration_time: Vec::new(),
+            acceleration: Vec::new(),
+            lux_time: Vec::new(),
+            lux: Vec::new(),
+            capsense_time: Vec::new(),
+            capsense: Vec::new(),
+            battery_voltage_time: Vec::new(),
+            battery_voltage: Vec::new(),
+            metadata_json: Vec::new(),
+            metadata: HashMap::new(),
+        }
+    }
 }
 
 pub struct LogRecordHeader {
@@ -116,56 +133,55 @@ fn decode_ssp_f32(data: &[u8]) -> f32 {
     (fraction as f32 / 8_388_608.0) * 2.0_f32.powi(exponent as i32)
 }
 
+fn estimate_data_size(metadata: &HashMap<String, String>) -> Option<(usize, usize)> {
+    let sample_rate: usize = metadata.get("Sample Rate")?.parse().ok()?;
+    let date_start: usize = metadata.get("Start Date")?.parse().ok()?;
+    let date_end: usize = metadata.get("Last Sample Time")?.parse().ok()?;
+
+    let duration = (date_end - date_start) / sample_rate / 100_000;
+    let num_samples = duration * sample_rate;
+
+    Some((duration, num_samples))
+}
+
 pub fn load_data(path: String) -> AccelerometerData {
     let fname = std::path::Path::new(&path);
     let file = fs::File::open(fname).unwrap();
 
     let mut archive = zip::ZipArchive::new(file).unwrap();
 
-    // measure execution time start
-    //use std::time::Instant;
-    //let now = Instant::now();
 
-    // read metadata
+    let mut data = AccelerometerData::new();
 
-    /*let mut info: HashMap<String, String> = HashMap::new();
+    // read metadat
 
     // Read the file line by line and parse into dictionary
     for line in BufReader::new(archive.by_name(GT3X_FILE_INFO).unwrap()).lines() {
         if let Ok(line) = line {
             let parts: Vec<&str> = line.splitn(2, ": ").collect();
             if parts.len() == 2 {
-                info.insert(parts[0].to_string(), parts[1].to_string());
+                data.metadata.insert(parts[0].to_string(), parts[1].to_string());
             }
         }
     }
-    // print dictionary
-    println!("{:?}", info);*/
+
+    // estimate data sizes
+
+    let (estimate_seconds, estimate_samples) = estimate_data_size(&data.metadata).unwrap_or((50_000_000, 200_000_000));
+
+    // These are estimates, reserving about 1.6 times the actual size in our test data
+    data.acceleration_time.reserve(estimate_samples);
+    data.acceleration.reserve(estimate_samples * 3);
+    data.lux.reserve(estimate_seconds / 4);
+    data.lux_time.reserve(estimate_seconds / 4);
+    data.capsense.reserve(estimate_seconds / 60);
+    data.capsense_time.reserve(estimate_seconds / 60);
+    data.battery_voltage.reserve(estimate_seconds / 60);
+    data.battery_voltage_time.reserve(estimate_seconds / 60);
 
     // read log data
 
-    // Read buffered stream
-
     let mut log = BufReader::new(archive.by_name(GT3X_FILE_LOG).unwrap());
-
-    // Loop through entries
-
-    // count records by type
-    //let mut record_counts: std::collections::HashMap<u8, u32> = std::collections::HashMap::new();
-
-    let mut data = AccelerometerData {
-        acceleration_time: Vec::with_capacity(50_000_000),
-        acceleration: Vec::with_capacity(200_000_000),
-        lux: Vec::with_capacity(50_000),
-        lux_time: Vec::with_capacity(50_000),
-        capsense: Vec::with_capacity(50_000),
-        capsense_time: Vec::with_capacity(50_000),
-        battery_voltage: Vec::with_capacity(50_000),
-        battery_voltage_time: Vec::with_capacity(50_000),
-        metadata: Vec::new(),
-    };
-
-    //let mut counter = 0;
 
     let mut sample_rate = 30;
     let mut accel_scale = 1.0_f32 / 256.0_f32;
@@ -178,7 +194,7 @@ pub fn load_data(path: String) -> AccelerometerData {
         match LogRecordType::from_u8(record.header.record_type) {
             LogRecordType::Metadata => {
                 let metadata = std::str::from_utf8(&record.data[0..record.data.len() - 1]).unwrap();
-                data.metadata.push(metadata.to_owned());
+                data.metadata_json.push(metadata.to_owned());
             }
             LogRecordType::Parameters => {
                 for offset in (0..record.data.len() - 1).step_by(8) {
