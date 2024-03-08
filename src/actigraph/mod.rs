@@ -3,7 +3,9 @@ mod defs;
 use bitreader::BitReader;
 use chrono::TimeDelta;
 use std::{
-    collections::HashMap, fs, io::{BufRead, BufReader, Read}
+    collections::HashMap,
+    fs,
+    io::{BufRead, BufReader, Read},
 };
 
 use crate::actigraph::defs::*;
@@ -88,11 +90,6 @@ impl std::fmt::Debug for LogRecordHeader {
     }
 }
 
-struct LogRecord {
-    header: LogRecordHeader,
-    data: Vec<u8>,
-}
-
 struct LogRecordIterator<R: Read> {
     buffer: R,
 }
@@ -103,22 +100,18 @@ impl<R: Read> LogRecordIterator<R> {
     }
 }
 
-impl<R: Read> Iterator for LogRecordIterator<R> {
-    type Item = LogRecord;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<R: Read> LogRecordIterator<R> {
+    fn next<'a>(&mut self, data: &'a mut [u8]) -> Option<(LogRecordHeader, &'a [u8])> {
         let mut header = [0u8; 8];
         match self.buffer.read_exact(&mut header) {
             Ok(_) => {
                 let record_header = LogRecordHeader::from_bytes(&header);
 
-                let mut data = vec![0u8; record_header.record_size as usize + 1];
+                let mut data = &mut data[0..record_header.record_size as usize + 1];
+
                 self.buffer.read_exact(&mut data).unwrap();
 
-                Some(LogRecord {
-                    header: record_header,
-                    data: data,
-                })
+                Some((record_header, data))
             }
             Err(_) => None,
         }
@@ -150,7 +143,6 @@ pub fn load_data(path: String) -> AccelerometerData {
 
     let mut archive = zip::ZipArchive::new(file).unwrap();
 
-
     let mut data = AccelerometerData::new();
 
     // read metadat
@@ -160,14 +152,16 @@ pub fn load_data(path: String) -> AccelerometerData {
         if let Ok(line) = line {
             let parts: Vec<&str> = line.splitn(2, ": ").collect();
             if parts.len() == 2 {
-                data.metadata.insert(parts[0].to_string(), parts[1].to_string());
+                data.metadata
+                    .insert(parts[0].to_string(), parts[1].to_string());
             }
         }
     }
 
     // estimate data sizes
 
-    let (estimate_seconds, estimate_samples) = estimate_data_size(&data.metadata).unwrap_or((50_000_000, 200_000_000));
+    let (estimate_seconds, estimate_samples) =
+        estimate_data_size(&data.metadata).unwrap_or((50_000_000, 200_000_000));
 
     // These are estimates, reserving about 1.6 times the actual size in our test data
     data.acceleration_time.reserve(estimate_samples);
@@ -186,23 +180,27 @@ pub fn load_data(path: String) -> AccelerometerData {
     let mut sample_rate = 30;
     let mut accel_scale = 1.0_f32 / 256.0_f32;
 
-    for record in LogRecordIterator::new(&mut log) {
-        if !record.header.valid_seperator() {
-            //println!("Invalid separator: {:x}", record.header.separator);
+    let mut record_data = [0u8; u16::MAX as usize + 1];
+
+    let mut it = LogRecordIterator::new(&mut log);
+
+    while let Some((record_header, record_data)) = it.next(&mut record_data) {
+        if !record_header.valid_seperator() {
+            //println!("Invalid separator: {:x}", record_header.separator);
         }
 
-        match LogRecordType::from_u8(record.header.record_type) {
+        match LogRecordType::from_u8(record_header.record_type) {
             LogRecordType::Metadata => {
-                let metadata = std::str::from_utf8(&record.data[0..record.data.len() - 1]).unwrap();
+                let metadata = std::str::from_utf8(&record_data[0..record_data.len() - 1]).unwrap();
                 data.metadata_json.push(metadata.to_owned());
             }
             LogRecordType::Parameters => {
-                for offset in (0..record.data.len() - 1).step_by(8) {
+                for offset in (0..record_data.len() - 1).step_by(8) {
                     let param_type = u32::from_le_bytes([
-                        record.data[offset],
-                        record.data[offset + 1],
-                        record.data[offset + 2],
-                        record.data[offset + 3],
+                        record_data[offset],
+                        record_data[offset + 1],
+                        record_data[offset + 2],
+                        record_data[offset + 3],
                     ]);
                     let param_identifier = (param_type >> 16) as u16;
                     let param_address_space = (param_type & 0xFFFF) as u16;
@@ -213,21 +211,21 @@ pub fn load_data(path: String) -> AccelerometerData {
                     match parameter_type {
                         ParameterType::SampleRate => {
                             sample_rate = u32::from_le_bytes([
-                                record.data[offset + 4],
-                                record.data[offset + 5],
-                                record.data[offset + 6],
-                                record.data[offset + 7],
+                                record_data[offset + 4],
+                                record_data[offset + 5],
+                                record_data[offset + 6],
+                                record_data[offset + 7],
                             ]);
                         }
                         ParameterType::AccelScale => {
-                            accel_scale = decode_ssp_f32(&record.data[offset + 4..offset + 8]);
+                            accel_scale = decode_ssp_f32(&record_data[offset + 4..offset + 8]);
                         }
                         _ => {
                             /*let val = u32::from_le_bytes([
-                                record.data[offset + 4],
-                                record.data[offset + 5],
-                                record.data[offset + 6],
-                                record.data[offset + 7],
+                                data[offset + 4],
+                                data[offset + 5],
+                                data[offset + 6],
+                                data[offset + 7],
                             ]);
                             println!("Unhandled parameter type: {:?}={}", parameter_type, val);*/
                         }
@@ -235,24 +233,27 @@ pub fn load_data(path: String) -> AccelerometerData {
                 }
             }
             LogRecordType::Activity => {
-                let dt = record.header.datetime();
+                let dt = record_header.datetime();
 
-                let mut reader = BitReader::new(&record.data[0..record.data.len() - 1]);
+                let mut reader = BitReader::new(&record_data[0..record_data.len() - 1]);
 
-                let mut field = Vec::<i16>::with_capacity(31 * 3);
+                let mut i = 0;
 
                 while let Ok(v) = reader.read_i16(12) {
-                    field.push(v);
-                }
+                    let y = v;
+                    let x = match reader.read_i16(12) {
+                        Ok(val) => val,
+                        Err(_) => break,
+                    };
+                    let z = match reader.read_i16(12) {
+                        Ok(val) => val,
+                        Err(_) => break,
+                    };
 
-                for i in (0..field.len()).step_by(3) {
-                    let y = field[i];
-                    let x = field[i + 1];
-                    let z = field[i + 2];
-
-                    let timestamp_nanos = datetime_add_hz(dt, sample_rate, i as u32 / 3)
-                        .timestamp_nanos_opt()
-                        .unwrap();
+                    let timestamp_nanos =
+                        datetime_add_hz(dt, sample_rate, i)
+                            .timestamp_nanos_opt()
+                            .unwrap();
 
                     data.acceleration_time.push(timestamp_nanos);
                     data.acceleration.extend(&[
@@ -260,27 +261,29 @@ pub fn load_data(path: String) -> AccelerometerData {
                         y as f32 * accel_scale,
                         z as f32 * accel_scale,
                     ]);
+
+                    i += 1;
                 }
             }
             LogRecordType::Lux => {
-                let lux = u16::from_le_bytes([record.data[0], record.data[1]]);
-                let timestamp_nanos = record.header.datetime().timestamp_nanos_opt().unwrap();
+                let lux = u16::from_le_bytes([record_data[0], record_data[1]]);
+                let timestamp_nanos = record_header.datetime().timestamp_nanos_opt().unwrap();
                 data.lux.push(lux);
                 data.lux_time.push(timestamp_nanos);
             }
             LogRecordType::Battery => {
-                let voltage = u16::from_le_bytes([record.data[0], record.data[1]]);
+                let voltage = u16::from_le_bytes([record_data[0], record_data[1]]);
 
-                let timestamp_nanos = record.header.datetime().timestamp_nanos_opt().unwrap();
+                let timestamp_nanos = record_header.datetime().timestamp_nanos_opt().unwrap();
                 data.battery_voltage.push(voltage);
                 data.battery_voltage_time.push(timestamp_nanos);
             }
             LogRecordType::Capsense => {
-                //let signal = u16::from_le_bytes([record.data[0], record.data[1]]);
-                //let reference = u16::from_le_bytes([record.data[2], record.data[3]);
-                let state = record.data[4] != 0;
-                //let bursts = record.data[5];
-                let timestamp_nanos = record.header.datetime().timestamp_nanos_opt().unwrap();
+                //let signal = u16::from_le_bytes([data[0], data[1]]);
+                //let reference = u16::from_le_bytes([data[2], data[3]);
+                let state = record_data[4] != 0;
+                //let bursts = data[5];
+                let timestamp_nanos = record_header.datetime().timestamp_nanos_opt().unwrap();
                 data.capsense.push(state);
                 data.capsense_time.push(timestamp_nanos);
             }
