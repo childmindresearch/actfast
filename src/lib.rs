@@ -101,6 +101,16 @@ fn read_actigraph_gt3x(_py: Python, path: &str) -> PyResult<PyObject> {
         dict_metadata_info.set_item(key, value)?;
     }
 
+    let dict_metdata_features = PyDict::new(_py);
+    dict_metadata.set_item("features", dict_metdata_features)?;
+
+    dict_metdata_features.set_item("heart_rate_monitor", data.device_features.heart_rate_monitor)?;
+    dict_metdata_features.set_item("data_summary", data.device_features.data_summary)?;
+    dict_metdata_features.set_item("sleep_mode", data.device_features.sleep_mode)?;
+    dict_metdata_features.set_item("proximity_tagging", data.device_features.proximity_tagging)?;
+    dict_metdata_features.set_item("epoch_data", data.device_features.epoch_data)?;
+    dict_metdata_features.set_item("no_raw_data", data.device_features.no_raw_data)?;
+
     Ok(dict.into())
 }
 

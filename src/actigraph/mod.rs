@@ -32,6 +32,7 @@ pub struct AccelerometerData {
     pub battery_voltage: Vec<u16>,
     pub metadata_json: Vec<String>,
     pub metadata: HashMap<String, String>,
+    pub device_features: DeviceFeatures,
 }
 
 impl AccelerometerData {
@@ -47,6 +48,7 @@ impl AccelerometerData {
             battery_voltage: Vec::new(),
             metadata_json: Vec::new(),
             metadata: HashMap::new(),
+            device_features: DeviceFeatures::new(),
         }
     }
 }
@@ -220,6 +222,22 @@ pub fn load_data(path: String) -> AccelerometerData {
                         ParameterType::AccelScale => {
                             accel_scale = decode_ssp_f32(&record_data[offset + 4..offset + 8]);
                         }
+                        ParameterType::FeatureEnable => {
+                            let x = u32::from_le_bytes([
+                                record_data[offset + 4],
+                                record_data[offset + 5],
+                                record_data[offset + 6],
+                                record_data[offset + 7],
+                            ]);
+                            data.device_features = DeviceFeatures {
+                                heart_rate_monitor: x & 1 != 0,
+                                data_summary: x & 2 != 0,
+                                sleep_mode: x & 4 != 0,
+                                proximity_tagging: x & 8 != 0,
+                                epoch_data: x & 16 != 0,
+                                no_raw_data: x & 32 != 0,
+                            };
+                        }
                         _ => {
                             /*let val = u32::from_le_bytes([
                                 data[offset + 4],
@@ -287,7 +305,9 @@ pub fn load_data(path: String) -> AccelerometerData {
                 data.capsense.push(state);
                 data.capsense_time.push(timestamp_nanos);
             }
-            _ => {}
+            _ => {
+                //println!("Unhandled record type: {:?}", LogRecordType::from_u8(record_header.record_type));
+            }
         }
     }
 
