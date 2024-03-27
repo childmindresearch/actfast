@@ -1,7 +1,7 @@
 mod defs;
 
 use bitreader::BitReader;
-use chrono::TimeDelta;
+use chrono::{TimeDelta, Utc};
 use std::{
     collections::HashMap,
     fs,
@@ -11,10 +11,10 @@ use std::{
 use crate::actigraph::defs::*;
 
 fn datetime_add_hz(
-    dt: chrono::NaiveDateTime,
+    dt: chrono::DateTime<Utc>,
     hz: u32,
     sample_counter: u32,
-) -> chrono::NaiveDateTime {
+) -> chrono::DateTime<Utc> {
     dt.checked_add_signed(TimeDelta::nanoseconds(
         (1_000_000_000 / hz * sample_counter) as i64,
     ))
@@ -74,8 +74,8 @@ impl LogRecordHeader {
         self.separator == 0x1E
     }
 
-    fn datetime(&self) -> chrono::NaiveDateTime {
-        chrono::NaiveDateTime::from_timestamp_opt(self.timestamp as i64, 0).unwrap()
+    fn datetime(&self) -> chrono::DateTime<Utc> {
+        chrono::DateTime::<Utc>::from_timestamp(self.timestamp as i64, 0).unwrap()
     }
 }
 
@@ -268,10 +268,9 @@ pub fn load_data(path: String) -> AccelerometerData {
                         Err(_) => break,
                     };
 
-                    let timestamp_nanos =
-                        datetime_add_hz(dt, sample_rate, i)
-                            .timestamp_nanos_opt()
-                            .unwrap();
+                    let timestamp_nanos = datetime_add_hz(dt, sample_rate, i)
+                        .timestamp_nanos_opt()
+                        .unwrap();
 
                     data.acceleration_time.push(timestamp_nanos);
                     data.acceleration.extend(&[

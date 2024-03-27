@@ -160,9 +160,9 @@ pub mod id {
 
 #[allow(dead_code)]
 pub mod data {
-    use struct_iterable::Iterable;
-    use chrono::{NaiveDate, NaiveDateTime};
     use crate::geneactiv::id;
+    use chrono::{DateTime, NaiveDate, Utc};
+    use struct_iterable::Iterable;
 
     #[derive(Debug, Iterable)]
     pub struct DeviceIdentity {
@@ -170,7 +170,7 @@ pub mod data {
         pub device_type: String,
         pub model: String,
         pub firmware: String,
-        pub calibration_date: NaiveDateTime,
+        pub calibration_date: DateTime<Utc>,
     }
 
     impl DeviceIdentity {
@@ -180,7 +180,7 @@ pub mod data {
                 device_type: String::new(),
                 model: String::new(),
                 firmware: String::new(),
-                calibration_date: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                calibration_date: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
             }
         }
 
@@ -191,7 +191,10 @@ pub mod data {
                 id::identity::MODEL => self.model = value.to_string(),
                 id::identity::FIRMWARE => self.firmware = value.to_string(),
                 id::identity::CALIBRATION_DATE => {
-                    self.calibration_date = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f").unwrap();
+                    self.calibration_date =
+                        DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
+                            .unwrap()
+                            .to_utc();
                 }
                 _ => {}
             }
@@ -228,15 +231,29 @@ pub mod data {
 
         pub fn set_field(&mut self, field: &str, value: &str) {
             match field {
-                id::capabilities::ACCELEROMETER_RANGE => self.accelerometer_range = value.to_string(),
-                id::capabilities::ACCELEROMETER_RESOLUTION => self.accelerometer_resolution = value.to_string(),
-                id::capabilities::ACCELEROMETER_UNITS => self.accelerometer_units = value.to_string(),
+                id::capabilities::ACCELEROMETER_RANGE => {
+                    self.accelerometer_range = value.to_string()
+                }
+                id::capabilities::ACCELEROMETER_RESOLUTION => {
+                    self.accelerometer_resolution = value.to_string()
+                }
+                id::capabilities::ACCELEROMETER_UNITS => {
+                    self.accelerometer_units = value.to_string()
+                }
                 id::capabilities::LIGHT_METER_RANGE => self.light_meter_range = value.to_string(),
-                id::capabilities::LIGHT_METER_RESOLUTION => self.light_meter_resolution = value.to_string(),
+                id::capabilities::LIGHT_METER_RESOLUTION => {
+                    self.light_meter_resolution = value.to_string()
+                }
                 id::capabilities::LIGHT_METER_UNITS => self.light_meter_units = value.to_string(),
-                id::capabilities::TEMPERATURE_SENSOR_RANGE => self.temperature_sensor_range = value.to_string(),
-                id::capabilities::TEMPERATURE_SENSOR_RESOLUTION => self.temperature_sensor_resolution = value.to_string(),
-                id::capabilities::TEMPERATURE_SENSOR_UNITS => self.temperature_sensor_units = value.to_string(),
+                id::capabilities::TEMPERATURE_SENSOR_RANGE => {
+                    self.temperature_sensor_range = value.to_string()
+                }
+                id::capabilities::TEMPERATURE_SENSOR_RESOLUTION => {
+                    self.temperature_sensor_resolution = value.to_string()
+                }
+                id::capabilities::TEMPERATURE_SENSOR_UNITS => {
+                    self.temperature_sensor_units = value.to_string()
+                }
                 _ => {}
             }
         }
@@ -246,7 +263,7 @@ pub mod data {
     pub struct ConfigurationInfo {
         pub measurement_frequency: String,
         pub measurement_period: String,
-        pub start_time: NaiveDateTime,
+        pub start_time: DateTime<Utc>,
         pub time_zone: String,
     }
 
@@ -255,17 +272,23 @@ pub mod data {
             ConfigurationInfo {
                 measurement_frequency: String::new(),
                 measurement_period: String::new(),
-                start_time: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                start_time: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
                 time_zone: String::new(),
             }
         }
 
         pub fn set_field(&mut self, field: &str, value: &str) {
             match field {
-                id::configuration::MEASUREMENT_FREQUENCY => self.measurement_frequency = value.to_string(),
-                id::configuration::MEASUREMENT_PERIOD => self.measurement_period = value.to_string(),
+                id::configuration::MEASUREMENT_FREQUENCY => {
+                    self.measurement_frequency = value.to_string()
+                }
+                id::configuration::MEASUREMENT_PERIOD => {
+                    self.measurement_period = value.to_string()
+                }
                 id::configuration::START_TIME => {
-                    self.start_time = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f").unwrap();
+                    self.start_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
+                        .unwrap()
+                        .to_utc();
                 }
                 id::configuration::TIME_ZONE => self.time_zone = value.to_string(),
                 _ => {}
@@ -280,10 +303,10 @@ pub mod data {
         pub investigator_id: String,
         pub exercise_type: String,
         pub config_operator_id: String,
-        pub config_time: NaiveDateTime,
+        pub config_time: DateTime<Utc>,
         pub config_notes: String,
         pub extract_operator_id: String,
-        pub extract_time: NaiveDateTime,
+        pub extract_time: DateTime<Utc>,
         pub extract_notes: String,
     }
 
@@ -295,10 +318,10 @@ pub mod data {
                 investigator_id: String::new(),
                 exercise_type: String::new(),
                 config_operator_id: String::new(),
-                config_time: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                config_time: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
                 config_notes: String::new(),
                 extract_operator_id: String::new(),
-                extract_time: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                extract_time: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
                 extract_notes: String::new(),
             }
         }
@@ -311,12 +334,16 @@ pub mod data {
                 id::trial::EXERCISE_TYPE => self.exercise_type = value.to_string(),
                 id::trial::CONFIG_OPERATOR_ID => self.config_operator_id = value.to_string(),
                 id::trial::CONFIG_TIME => {
-                    self.config_time = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f").unwrap();
+                    self.config_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
+                        .unwrap()
+                        .to_utc();
                 }
                 id::trial::CONFIG_NOTES => self.config_notes = value.to_string(),
                 id::trial::EXTRACT_OPERATOR_ID => self.extract_operator_id = value.to_string(),
                 id::trial::EXTRACT_TIME => {
-                    self.extract_time = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f").unwrap();
+                    self.extract_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
+                        .unwrap()
+                        .to_utc();
                 }
                 id::trial::EXTRACT_NOTES => self.extract_notes = value.to_string(),
                 _ => {}
@@ -415,9 +442,7 @@ pub mod data {
 
     impl MemoryStatus {
         pub fn new() -> MemoryStatus {
-            MemoryStatus {
-                number_of_pages: 0,
-            }
+            MemoryStatus { number_of_pages: 0 }
         }
 
         pub fn set_field(&mut self, field: &str, value: &str) {
@@ -470,7 +495,7 @@ pub mod data {
     pub struct RecordedData {
         pub device_unique_serial_code: String,
         pub sequence_number: i32,
-        pub page_time: NaiveDateTime,
+        pub page_time: DateTime<Utc>,
         pub unassigned: String,
         pub temperature: f32,
         pub battery_voltage: f32,
@@ -483,7 +508,7 @@ pub mod data {
             RecordedData {
                 device_unique_serial_code: String::new(),
                 sequence_number: 0,
-                page_time: NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
+                page_time: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
                 unassigned: String::new(),
                 temperature: 0.0,
                 battery_voltage: 0.0,
@@ -497,13 +522,17 @@ pub mod data {
                 id::record::SERIAL => self.device_unique_serial_code = value.to_string(),
                 id::record::SEQUENCE => self.sequence_number = value.parse::<i32>().unwrap(),
                 id::record::PAGE_TIME => {
-                    self.page_time = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f").unwrap();
+                    self.page_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
+                        .unwrap()
+                        .to_utc();
                 }
                 id::record::UNASSIGNED => self.unassigned = value.to_string(),
                 id::record::TEMPERATURE => self.temperature = value.parse::<f32>().unwrap(),
                 id::record::BATTERY_VOLTAGE => self.battery_voltage = value.parse::<f32>().unwrap(),
                 id::record::DEVICE_STATUS => self.device_status = value.to_string(),
-                id::record::MEASUREMENT_FREQUENCY => self.measurement_frequency = value.parse::<f32>().unwrap(),
+                id::record::MEASUREMENT_FREQUENCY => {
+                    self.measurement_frequency = value.parse::<f32>().unwrap()
+                }
                 _ => {}
             }
         }
