@@ -111,9 +111,14 @@ impl<R: Read> LogRecordIterator<R> {
 
                 let mut data = &mut data[0..record_header.record_size as usize + 1];
 
-                self.buffer.read_exact(&mut data).unwrap();
-
-                Some((record_header, data))
+                match self.buffer.read_exact(&mut data) {
+                    Ok(_) => Some((record_header, data)),
+                    Err(_) => {
+                        // Todo: Raise proper Python warning so users can catch this
+                        println!("Warning: Unexpected end of file");
+                        None
+                    },
+                }
             }
             Err(_) => None,
         }
