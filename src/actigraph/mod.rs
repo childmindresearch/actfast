@@ -138,7 +138,22 @@ fn estimate_data_size(metadata: &HashMap<String, String>) -> Option<(usize, usiz
     let date_start: usize = metadata.get("Start Date")?.parse().ok()?;
     let date_end: usize = metadata.get("Last Sample Time")?.parse().ok()?;
 
-    let duration = (date_end - date_start) / sample_rate / 100_000;
+    if date_start >= date_end {
+        return None;
+    }
+    let date_difference = date_end - date_start;
+
+    // if more than 1 year, return None
+    if date_difference > 365 * 24 * 60 * 60 {
+        return None;
+    }
+
+    // implausible sample rate
+    if sample_rate == 0 || sample_rate > 10_000 {
+        return None;
+    }
+
+    let duration = date_difference / sample_rate / 100_000;
     let num_samples = duration * sample_rate;
 
     Some((duration, num_samples))
