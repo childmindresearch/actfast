@@ -169,8 +169,9 @@ pub fn load_data(path: String) -> AccelerometerData {
             let line = lines_record[i].trim();
             if let Some(measurement_frequency) = parse_value(line, id::record::MEASUREMENT_FREQUENCY) {
                 record_header.measurement_frequency = measurement_frequency;
-            } else if let Some(page_time) = parse_value(line, id::record::PAGE_TIME) {
-                record_header.page_time = page_time;
+            } else if let Some(page_time_str) = parse_value(line, id::record::PAGE_TIME) {
+                let _: String = page_time_str;
+                record_header.page_time = defs::parse_date_time(&page_time_str);
             } else if let Some(temperature) = parse_value(line, id::record::TEMPERATURE) {
                 record_header.temperature = temperature;
             } else if let Some(battery_voltage) = parse_value(line, id::record::BATTERY_VOLTAGE) {
@@ -178,7 +179,7 @@ pub fn load_data(path: String) -> AccelerometerData {
             }
         }
 
-        data.b_time.push(record_header.page_time.timestamp());
+        data.b_time.push(record_header.page_time.timestamp_nanos_opt().unwrap());
         data.b_temperature.push(record_header.temperature);
         data.b_battery_voltage.push(record_header.battery_voltage);
 
@@ -193,7 +194,7 @@ pub fn load_data(path: String) -> AccelerometerData {
             let sample_time = record_header.page_time
                 + chrono::Duration::nanoseconds((1_000_000_000.0 / record_header.measurement_frequency) as i64 * i as i64);
 
-            data.a_time.push(sample_time.timestamp());
+            data.a_time.push(sample_time.timestamp_nanos_opt().unwrap());
             data.a3_acceleration.push(sample.x);
             data.a3_acceleration.push(sample.y);
             data.a3_acceleration.push(sample.z);

@@ -158,11 +158,24 @@ pub mod id {
     }
 }
 
+pub fn parse_date_time(date_time: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::NaiveDateTime::parse_from_str(date_time, "%Y-%m-%d %H:%M:%S:%3f")
+        .map(|dt| dt.and_utc())
+        .unwrap_or(chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap())
+}
+
+pub fn parse_date(date: &str) -> chrono::NaiveDate {
+    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .unwrap_or(chrono::NaiveDate::from_ymd_opt(1900, 1, 1).unwrap())
+}
+
 #[allow(dead_code)]
 pub mod data {
     use crate::geneactiv::id;
     use chrono::{DateTime, NaiveDate, Utc};
     use struct_iterable::Iterable;
+
+    use super::{parse_date, parse_date_time};
 
     #[derive(Debug, Iterable)]
     pub struct DeviceIdentity {
@@ -190,12 +203,7 @@ pub mod data {
                 id::identity::TYPE => self.device_type = value.to_string(),
                 id::identity::MODEL => self.model = value.to_string(),
                 id::identity::FIRMWARE => self.firmware = value.to_string(),
-                id::identity::CALIBRATION_DATE => {
-                    self.calibration_date =
-                        DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
-                            .unwrap()
-                            .to_utc();
-                }
+                id::identity::CALIBRATION_DATE => self.calibration_date = parse_date_time(value),
                 _ => {}
             }
         }
@@ -286,9 +294,7 @@ pub mod data {
                     self.measurement_period = value.to_string()
                 }
                 id::configuration::START_TIME => {
-                    self.start_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
-                        .unwrap()
-                        .to_utc();
+                    self.start_time = parse_date_time(value)
                 }
                 id::configuration::TIME_ZONE => self.time_zone = value.to_string(),
                 _ => {}
@@ -334,16 +340,12 @@ pub mod data {
                 id::trial::EXERCISE_TYPE => self.exercise_type = value.to_string(),
                 id::trial::CONFIG_OPERATOR_ID => self.config_operator_id = value.to_string(),
                 id::trial::CONFIG_TIME => {
-                    self.config_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
-                        .unwrap()
-                        .to_utc();
+                    self.config_time = parse_date_time(value)
                 }
                 id::trial::CONFIG_NOTES => self.config_notes = value.to_string(),
                 id::trial::EXTRACT_OPERATOR_ID => self.extract_operator_id = value.to_string(),
                 id::trial::EXTRACT_TIME => {
-                    self.extract_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
-                        .unwrap()
-                        .to_utc();
+                    self.extract_time = parse_date_time(value)
                 }
                 id::trial::EXTRACT_NOTES => self.extract_notes = value.to_string(),
                 _ => {}
@@ -382,7 +384,7 @@ pub mod data {
                 id::subject::LOCATION_CODE => self.location_code = value.to_string(),
                 id::subject::CODE => self.code = value.to_string(),
                 id::subject::DATE_OF_BIRTH => {
-                    self.date_of_birth = NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap();
+                    self.date_of_birth = parse_date(value);
                 }
                 id::subject::SEX => self.sex = value.to_string(),
                 id::subject::HEIGHT => self.height = value.to_string(),
@@ -522,9 +524,7 @@ pub mod data {
                 id::record::SERIAL => self.device_unique_serial_code = value.to_string(),
                 id::record::SEQUENCE => self.sequence_number = value.parse::<i32>().unwrap(),
                 id::record::PAGE_TIME => {
-                    self.page_time = DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S:%3f")
-                        .unwrap()
-                        .to_utc();
+                    self.page_time = parse_date_time(value);
                 }
                 id::record::UNASSIGNED => self.unassigned = value.to_string(),
                 id::record::TEMPERATURE => self.temperature = value.parse::<f32>().unwrap(),
