@@ -9,8 +9,8 @@ name = "actfast"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.20"
-numpy = "0.20"
+pyo3 = "0.21"
+numpy = "0.21"
 zip = "0.6.6"
 chrono = "0.4.34"
 bitreader = "0.3.8"
