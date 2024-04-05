@@ -109,6 +109,11 @@ impl<R: Read> LogRecordIterator<R> {
             Ok(_) => {
                 let record_header = LogRecordHeader::from_bytes(&header);
 
+                if !record_header.valid_seperator() || (record_header.record_size as usize + 1) >= data.len() {
+                    println!("Warning: File read aborted after encountering invalid record");
+                    return None;
+                }
+
                 let mut data = &mut data[0..record_header.record_size as usize + 1];
 
                 match self.buffer.read_exact(&mut data) {
@@ -213,8 +218,12 @@ pub fn load_data(path: String) -> AccelerometerData {
 
         match LogRecordType::from_u8(record_header.record_type) {
             LogRecordType::Metadata => {
-                let metadata = std::str::from_utf8(&record_data[0..record_data.len() - 1]).unwrap();
-                data.metadata_json.push(metadata.to_owned());
+                let metadata = std::str::from_utf8(&record_data[0..record_data.len() - 1]);
+                if let Ok(metadata) = metadata {
+                    data.metadata_json.push(metadata.to_owned());
+                } else {
+                    println!("Warning: Invalid metadata string dropped.");
+                }
             }
             LogRecordType::Parameters => {
                 for offset in (0..record_data.len() - 1).step_by(8) {
