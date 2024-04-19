@@ -55,7 +55,7 @@ pub struct SampleDataUncalibrated {
     pub x: i16,
     pub y: i16,
     pub z: i16,
-    pub light: i16,
+    pub light: u16,
     pub button_state: bool,
 }
 
@@ -64,7 +64,7 @@ impl SampleDataUncalibrated {
         let x = bitreader.read_i16(12).unwrap();
         let y = bitreader.read_i16(12).unwrap();
         let z = bitreader.read_i16(12).unwrap();
-        let light = bitreader.read_i16(10).unwrap();
+        let light = bitreader.read_u16(10).unwrap();
         let button_state = bitreader.read_bool().unwrap();
         bitreader.skip(1).unwrap();
 
@@ -79,9 +79,9 @@ impl SampleDataUncalibrated {
 
     pub fn calibrate(&self, cal: &CalibrationData) -> SampleDataCalibrated {
         SampleDataCalibrated {
-            x: (self.x as f32 - cal.x_offset as f32) / cal.x_gain as f32,
-            y: (self.y as f32 - cal.y_offset as f32) / cal.y_gain as f32,
-            z: (self.z as f32 - cal.z_offset as f32) / cal.z_gain as f32,
+            x: ((self.x as f32 * 100.0) - cal.x_offset as f32) / cal.x_gain as f32,
+            y: ((self.y as f32 * 100.0) - cal.y_offset as f32) / cal.y_gain as f32,
+            z: ((self.z as f32 * 100.0) - cal.z_offset as f32) / cal.z_gain as f32,
             light: self.light as f32 * cal.lux as f32 / cal.volts as f32,
             button_state: self.button_state,
         }
