@@ -1,7 +1,7 @@
 mod defs;
 
-use crate::geneactiv::defs::*;
 use crate::geneactiv::defs::data::*;
+use crate::geneactiv::defs::*;
 
 use std::{
     fs,
@@ -96,7 +96,6 @@ pub struct SampleDataCalibrated {
     pub button_state: bool,
 }
 
-
 fn read_prefixed<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     if s.starts_with(prefix) {
         Some(&s[prefix.len()..])
@@ -125,6 +124,13 @@ pub fn read_n_lines<R: BufRead>(reader: &mut R, lines: &mut [String]) -> Option<
     Some(())
 }
 
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
+
 pub fn load_data(path: String) -> AccelerometerData {
     let file = fs::File::open(path).unwrap();
     let mut buf_reader = BufReader::new(file);
@@ -145,21 +151,27 @@ pub fn load_data(path: String) -> AccelerometerData {
         }
         // find colon position
         let colon = line.find(':');
-       
+
         if colon.is_none() {
             last_category = line.to_string();
             continue;
         }
-        data.header.set_field(&last_category, &line[..colon.unwrap()+1], &line[colon.unwrap() + 1..]);
+        data.header.set_field(
+            &last_category,
+            &line[..colon.unwrap() + 1],
+            &line[colon.unwrap() + 1..],
+        );
     }
-
 
     let mut lines_record = vec![String::new(); 10];
     let mut record_header = RecordedData::new();
 
     while Some(()) == read_n_lines(&mut buf_reader, &mut lines_record) {
         if !data_reserved {
-            data.reserve(data.header.memory.number_of_pages, lines_record[9].as_bytes().len() / 6);
+            data.reserve(
+                data.header.memory.number_of_pages,
+                lines_record[9].as_bytes().len() / 6,
+            );
             data_reserved = true;
         }
 
@@ -167,7 +179,9 @@ pub fn load_data(path: String) -> AccelerometerData {
 
         for i in 0..9 {
             let line = lines_record[i].trim();
-            if let Some(measurement_frequency) = parse_value(line, id::record::MEASUREMENT_FREQUENCY) {
+            if let Some(measurement_frequency) =
+                parse_value(line, id::record::MEASUREMENT_FREQUENCY)
+            {
                 record_header.measurement_frequency = measurement_frequency;
             } else if let Some(page_time_str) = parse_value(line, id::record::PAGE_TIME) {
                 let _: String = page_time_str;
@@ -179,20 +193,27 @@ pub fn load_data(path: String) -> AccelerometerData {
             }
         }
 
-        data.b_time.push(record_header.page_time.timestamp_nanos_opt().unwrap());
+        data.b_time
+            .push(record_header.page_time.timestamp_nanos_opt().unwrap());
         data.b_temperature.push(record_header.temperature);
         data.b_battery_voltage.push(record_header.battery_voltage);
 
-        // read record data 
+        // read record data
 
-        let buf = lines_record[9].as_bytes();
-        let mut bitreader = bitreader::BitReader::new(buf);
+        let buf = decode_hex(&lines_record[9].trim()).unwrap_or_else(|_| {
+            println!("Warning: Error decoding hex string");
+            Vec::new()
+        });
+        let mut bitreader = bitreader::BitReader::new(buf.as_slice());
 
         for i in 0..buf.len() / 6 {
-            let sample = SampleDataUncalibrated::read(&mut bitreader).calibrate(&data.header.calibration);
+            let sample =
+                SampleDataUncalibrated::read(&mut bitreader).calibrate(&data.header.calibration);
 
             let sample_time = record_header.page_time
-                + chrono::Duration::nanoseconds((1_000_000_000.0 / record_header.measurement_frequency) as i64 * i as i64);
+                + chrono::Duration::nanoseconds(
+                    (1_000_000_000.0 / record_header.measurement_frequency) as i64 * i as i64,
+                );
 
             data.a_time.push(sample_time.timestamp_nanos_opt().unwrap());
             data.a3_acceleration.push(sample.x);
