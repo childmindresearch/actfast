@@ -1,6 +1,6 @@
 [package]
 name = "actfast"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = "0.21"
 numpy = "0.21"
-zip = "0.6.6"
+zip = "1.1.2"
 chrono = "0.4.34"
 bitreader = "0.3.8"
 struct_iterable = "0.1.1"
