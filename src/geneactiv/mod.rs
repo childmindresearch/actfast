@@ -81,7 +81,7 @@ pub fn read_n_lines<R: BufRead>(reader: &mut R, lines: &mut [String]) -> Option<
 }
 
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    (0..s.len())
+    (0..(s.len() - (s.len() % 2)))  // ignore last byte if odd
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
         .collect()
