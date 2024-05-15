@@ -2,8 +2,6 @@
 
 `actfast` is a Python package for reading raw actigraphy data of various devices and manufacturers. It is designed to be lightweight, fast, and memory efficient, and is suitable for reading large datasets.
 
-In preliminary benchmarks, `actfast` showed around 40x speedup compared to `pygt3x` for reading ActiGraph GT3X files.
-
 ## Supported devices
 
 The package currently supports the following formats:
@@ -53,7 +51,7 @@ Similar devices might work, but have not been tested. Please open an issue and a
 
 ## Usage
 
-The package provides a single function, `read`, which reads a binary actigraphy file and returns a dictionary with the data.
+The package provides a single function, `read`, which reads an actigraphy file and returns a dictionary with file format info, unstructured metadata, and sensor data arrays.
 
 ```python
 import actfast
