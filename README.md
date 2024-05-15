@@ -1,6 +1,6 @@
 # `actfast` Fast actigraphy data reader
 
-`actfast` is a Python package for reading raw actigraphy data of various devices and manufacturers. It is designed to be lightweight, fast, and memory efficient, and is suitable for reading large datasets.
+`actfast` is a Python package for reading raw actigraphy data of various devices and manufacturers. It is designed to be fast, lightweight, memory efficient, and suitable for reading large datasets.
 
 ## Supported devices
 
@@ -20,7 +20,8 @@ The package currently supports the following formats:
 | CSV | Any | Any | Use general-purpose CSV reader |
 | XLS, XLSX, ODS | Any | Any | Use general-purpose Excel reader |
 
-This package exclusively reads non-standard files that contain sensor data. It does not read CSV or other standard file formats used by various manufacturers. Use any general-purpose CSV reader to read these files. Because CSV files do not necessarily contain a unique header, we cannot identify them from the file contents.
+The scope of this package is limited to reading raw sensor
+data. It does not read CSV or other standard file formats commonly used by various manufacturers. Use general-purpose libraries to read these files.
 
 The package is designed to be easily extensible to support new formats and devices. If you have a non-standard device format that is not supported yet, please open an issue and attach a sample file. We will do our best to add support for it.
 
@@ -85,9 +86,9 @@ The returned dictionary has the following structure:
 
 ## Architecture & usage considerations
 
-All supported formats seem to be constructed in a similar way: A header followed by a series of variable-length, variable-content records. While this stream of records is easy to write for the manufacturers, it is not ideal for vectorized operations. `actfast` collects data in linear buffers and then reshapes them into numpy arrays.
+All supported formats seem to be constructed as streams of variable-length, variable-content records. While this stream of records is easy to write for the manufacturers, it is not ideal for vectorized operations. `actfast` collects data in contiguous arrays.
 
-Consider reading large datasets once and storing them in a more efficient format (e.g., Parquet, HDF5) for subsequent analysis. This will reduce the time spent reading files and the memory footprint of the data dramatically.
+Consider reading large datasets once and storing them in a more efficient format (e.g., Parquet, HDF5) for subsequent analysis. This will always speed up data reading and enable streaming data processing.
 
 ## License
 
