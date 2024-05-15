@@ -1,3 +1,4 @@
+mod file_format;
 mod actigraph;
 //mod axivity;
 mod geneactiv;
@@ -10,33 +11,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use sensors::SensorsFormatReader;
-
-enum FileFormat {
-    ActigraphGt3x,
-    GeneactivBin,
-    AxivityCwa,
-}
-
-fn guess_file_format(path: &str) -> std::io::Result<Option<FileFormat>> {
-    let file = std::fs::File::open(path)?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut magic = [0; 4];
-    reader.read_exact(&mut magic)?;
-
-    Ok(
-        if magic[0] == 0x50 && magic[1] == 0x4b && magic[2] == 0x03 && magic[3] == 0x04 {
-            // this is the general zip magic number
-            // if we add another file format that uses zip, we need to check the contents
-            Some(FileFormat::ActigraphGt3x)
-        } else if magic[0] == 0x44 && magic[1] == 0x65 && magic[2] == 0x76 && magic[3] == 0x69 {
-            Some(FileFormat::GeneactivBin)
-        } else if magic[0] == 0x4d && magic[1] == 0x44 {
-            Some(FileFormat::AxivityCwa)
-        } else {
-            None
-        },
-    )
-}
 
 fn sensor_data_dyn_to_pyarray<'py, T>(
     py: Python<'py>,
@@ -61,8 +35,14 @@ where
 }
 
 #[pyfunction]
-fn read(_py: Python, path: &str) -> PyResult<PyObject> {
-    let file_format = guess_file_format(path)?
+fn read(_py: Python, path: std::path::PathBuf) -> PyResult<PyObject> {
+    
+    let file = std::fs::File::open(&path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut magic = [0; 4];
+    reader.read_exact(&mut magic)?;
+
+    let format_type = file_format::identify(&magic)
         .ok_or(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "Unknown file format",
         ))?;
@@ -147,31 +127,49 @@ fn read(_py: Python, path: &str) -> PyResult<PyObject> {
             .unwrap();
     };
 
-    let fname = std::path::Path::new(path);
-    let file = std::fs::File::open(fname)?;
+    let file = std::fs::File::open(&path)?;
 
-    match file_format {
-        FileFormat::ActigraphGt3x => {
+    match format_type {
+        file_format::FileFormat::ActigraphGt3x => {
             actigraph::ActigraphReader::new()
                 .read(file, metadata_callback, sensor_table_callback)
                 .or(Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "Failed to read file",
                 )))?;
         }
-        FileFormat::GeneactivBin => {
+        file_format::FileFormat::GeneactivBin => {
             geneactiv::GeneActivReader::new()
                 .read(file, metadata_callback, sensor_table_callback)
                 .or(Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "Failed to read file",
                 )))?;
         }
-        FileFormat::AxivityCwa => {}
+        file_format::FileFormat::UnknownWav => {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Unsupported file format: WAV audio. Use a general purpose \
+                audio reader (such as Python standard library 'wave') to read these files.",
+            ));
+        }
+        file_format::FileFormat::UnknownSqlite => {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Unsupported file format: SQLite. Use a general purpose \
+                SQLite reader (such as Python standard library 'sqlite3') to read these files.",
+            ));
+        }
+        _ => {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("Unimplemented file format: {:?}", format_type),
+            ));
+        }
     };
 
-    let format_str = match file_format {
-        FileFormat::ActigraphGt3x => "Actigraph GT3X",
-        FileFormat::GeneactivBin => "GeneActiv BIN",
-        FileFormat::AxivityCwa => "Axivity CWA",
+    let format_str = match format_type {
+        file_format::FileFormat::ActigraphGt3x => "Actigraph GT3X",
+        file_format::FileFormat::AxivityCwa => "Axivity CWA",
+        file_format::FileFormat::GeneactivBin => "GeneActiv BIN",
+        file_format::FileFormat::GeneaBin => "Genea BIN",
+        file_format::FileFormat::UnknownWav => "Unknown WAV",
+        file_format::FileFormat::UnknownSqlite => "Unknown SQLite",
     };
     dict.set_item("format", format_str)?;
 

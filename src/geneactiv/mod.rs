@@ -402,7 +402,7 @@ mod tests {
         let mut reader = GeneActivReader::new();
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
-        let data = include_bytes!("../../test_data/geneactiv.bin");
+        let data = include_bytes!("../../test_data/cmi/geneactiv.bin");
         assert!(reader
             .read(
                 Cursor::new(data),

@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_actigraph_reader() {
-        let data = include_bytes!("../../test_data/actigraph.gt3x");
+        let data = include_bytes!("../../test_data/cmi/actigraph.gt3x");
         let mut reader = ActigraphReader::new();
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
