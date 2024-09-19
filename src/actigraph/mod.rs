@@ -374,6 +374,37 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
                     let params = parse_parameters(record_data);
                     sample_rate = params.sample_rate;
                     accel_scale = params.accel_scale;
+
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "data_summary",
+                        value: &format!("{}", params.device_features.data_summary),
+                    });
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "epoch_data",
+                        value: &format!("{}", params.device_features.epoch_data),
+                    });
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "heart_rate_monitor",
+                        value: &format!("{}", params.device_features.heart_rate_monitor),
+                    });
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "no_raw_data",
+                        value: &format!("{}", params.device_features.no_raw_data),
+                    });
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "proximity_tagging",
+                        value: &format!("{}", params.device_features.proximity_tagging),
+                    });
+                    metadata_callback(sensors::MetadataEntry {
+                        category: "device_feature_enabled",
+                        key: "sleep_mode",
+                        value: &format!("{}", params.device_features.sleep_mode),
+                    });
                 }
                 LogRecordType::Activity => {
                     let dt = record_header.datetime();
@@ -503,7 +534,7 @@ mod tests {
             )
             .is_ok());
 
-        assert_eq!(metadata.len(), 19);
+        assert_eq!(metadata.len(), 25);
         assert_eq!(sensor_table.len(), 4);
 
         assert_eq!(metadata[&("info".into(), "Sample Rate".into())], "60");
