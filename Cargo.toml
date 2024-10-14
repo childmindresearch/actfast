@@ -9,9 +9,9 @@ name = "actfast"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.21.2"
-numpy = "0.21"
+pyo3 = "0.22.4"
+numpy = "0.22"
 zip = { version = "2.1.5", features = ["deflate"], default-features = false }
 chrono = "0.4.34"
-bitreader = "0.3.8"
+bitreader = "0.3.10"
 assert_approx_eq = "1.1.0"
