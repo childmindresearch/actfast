@@ -21,13 +21,13 @@ where
     T: numpy::Element,
 {
     if reference_len == 0 {
-        return Ok(PyArray1::from_slice_bound(py, data).as_any().to_owned());
+        return Ok(PyArray1::from_slice(py, data).as_any().to_owned());
     }
     let multi_sensor = data.len() / reference_len;
     Ok(if multi_sensor == 1 {
-        PyArray1::from_slice_bound(py, data).as_any().to_owned()
+        PyArray1::from_slice(py, data).as_any().to_owned()
     } else {
-        PyArray1::from_slice_bound(py, data)
+        PyArray1::from_slice(py, data)
             .reshape([reference_len, multi_sensor])?
             .as_any()
             .to_owned()
@@ -47,9 +47,9 @@ fn read(_py: Python, path: std::path::PathBuf) -> PyResult<PyObject> {
             "Unknown file format",
         ))?;
 
-    let dict = PyDict::new_bound(_py);
-    let dict_metadata = PyDict::new_bound(_py);
-    let dict_timeseries = PyDict::new_bound(_py);
+    let dict = PyDict::new(_py);
+    let dict_metadata = PyDict::new(_py);
+    let dict_timeseries = PyDict::new(_py);
 
     let metadata_callback = |metadata: sensors::MetadataEntry| {
         dict_metadata
@@ -57,7 +57,7 @@ fn read(_py: Python, path: std::path::PathBuf) -> PyResult<PyObject> {
             .unwrap()
             .map_or_else(
                 || {
-                    let category_dict = PyDict::new_bound(_py);
+                    let category_dict = PyDict::new(_py);
                     category_dict
                         .set_item(metadata.key, metadata.value)
                         .unwrap();
@@ -76,8 +76,8 @@ fn read(_py: Python, path: std::path::PathBuf) -> PyResult<PyObject> {
     };
 
     let sensor_table_callback = |sensor_table: sensors::SensorTable| {
-        let dict_sensor_table = PyDict::new_bound(_py);
-        let np_datetime = PyArray1::from_slice_bound(_py, sensor_table.datetime).to_owned();
+        let dict_sensor_table = PyDict::new(_py);
+        let np_datetime = PyArray1::from_slice(_py, sensor_table.datetime).to_owned();
         dict_sensor_table.set_item("datetime", np_datetime).unwrap();
 
         for sensor_data in sensor_table.data.iter() {
