@@ -35,7 +35,7 @@ where
 }
 
 #[pyfunction]
-fn read(_py: Python, path: std::path::PathBuf) -> PyResult<PyObject> {
+fn read(_py: Python, path: std::path::PathBuf) -> PyResult<Py<PyAny>> {
     
     let file = std::fs::File::open(&path)?;
     let mut reader = std::io::BufReader::new(file);

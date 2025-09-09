@@ -9,13 +9,13 @@ name = "actfast"
 crate-type = ["cdylib"]
 
 [dependencies]
-numpy = "0.23"
-zip = { version = "2.1.5", features = ["deflate"], default-features = false }
-chrono = "0.4.34"
+numpy = "0.26"
+zip = { version = "5.0.0", features = ["deflate"], default-features = false }
+chrono = "0.4.42"
 bitreader = "0.3.10"
 assert_approx_eq = "1.1.0"
 
 [dependencies.pyo3]
-version = "0.23.4"
+version = "0.26.0"
 # "abi3-py38" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.8
 features = ["abi3-py38"]
