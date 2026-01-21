@@ -260,11 +260,13 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
         reader: R,
         mut metadata_callback: M,
         mut sensor_table_callback: S,
-    ) -> Result<()>
+        lenient: bool,
+    ) -> Result<sensors::ReadResult>
     where
         M: FnMut(sensors::MetadataEntry),
         S: FnMut(sensors::SensorTable<'a>),
     {
+        let mut result = sensors::ReadResult::new();
         let mut buf_reader = BufReader::new(reader);
 
         let mut number_of_pages: usize = 0;
@@ -341,19 +343,25 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
         let mut current_line = HEADER_LINES + 1;
         let mut record_index: usize = 0;
 
-        loop {
+        'records: loop {
             let lines_read = read_n_lines(&mut buf_reader, &mut lines_record, current_line)?;
             if lines_read == 0 {
                 break; // Normal EOF
             }
             if lines_read < RECORD_LINES {
-                return Err(ActfastError::UnexpectedEof {
+                let error = ActfastError::UnexpectedEof {
                     context: format!(
                         "incomplete record (expected {} lines, got {})",
                         RECORD_LINES, lines_read
                     ),
                     location: FileLocation::at_record(record_index).with_sample(0),
-                });
+                };
+                if lenient {
+                    result.warnings.push(error.to_string());
+                    break;
+                } else {
+                    return Err(error);
+                }
             }
 
             let record_location = FileLocation::at_record(record_index);
@@ -375,7 +383,17 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
                 if let Some(freq) = parse_value(line, id::record::MEASUREMENT_FREQUENCY, 1) {
                     measurement_frequency = freq;
                 } else if let Some(time_str) = read_prefixed(line, id::record::PAGE_TIME, 1) {
-                    page_time = defs::parse_date_time(time_str.trim(), record_location.clone())?;
+                    match defs::parse_date_time(time_str.trim(), record_location.clone()) {
+                        Ok(dt) => page_time = dt,
+                        Err(e) => {
+                            if lenient {
+                                result.warnings.push(e.to_string());
+                                continue 'records;
+                            } else {
+                                return Err(e);
+                            }
+                        }
+                    }
                 } else if let Some(temp) = parse_value(line, id::record::TEMPERATURE, 1) {
                     temperature = temp;
                 } else if let Some(bv) = parse_value(line, id::record::BATTERY_VOLTAGE, 1) {
@@ -383,28 +401,55 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
                 }
             }
 
-            let page_time_nanos =
-                page_time
-                    .timestamp_nanos_opt()
-                    .ok_or_else(|| ActfastError::InvalidDateTime {
+            let page_time_nanos = match page_time.timestamp_nanos_opt() {
+                Some(nanos) => nanos,
+                None => {
+                    let error = ActfastError::InvalidDateTime {
                         value: page_time.to_string(),
                         format: "timestamp out of nanosecond range",
                         location: record_location.clone(),
-                    })?;
+                    };
+                    if lenient {
+                        result.warnings.push(error.to_string());
+                        continue;
+                    } else {
+                        return Err(error);
+                    }
+                }
+            };
 
             self.low_frequency_data
                 .push(page_time_nanos, temperature, battery_voltage);
 
             // Parse sample data (hex-encoded binary)
             let hex_data = lines_record[9].trim();
-            let buf = decode_hex(hex_data, record_location.clone())?;
+            let buf = match decode_hex(hex_data, record_location.clone()) {
+                Ok(buf) => buf,
+                Err(e) => {
+                    if lenient {
+                        result.warnings.push(e.to_string());
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
             let mut bitreader = bitreader::BitReader::new(buf.as_slice());
 
             let num_samples = buf.len() / 6;
             for sample_idx in 0..num_samples {
                 let sample_location = record_location.clone().with_sample(sample_idx);
-                let sample = SampleDataUncalibrated::read(&mut bitreader, &sample_location)?
-                    .calibrate(&calibration_data);
+                let sample = match SampleDataUncalibrated::read(&mut bitreader, &sample_location) {
+                    Ok(s) => s.calibrate(&calibration_data),
+                    Err(e) => {
+                        if lenient {
+                            result.warnings.push(e.to_string());
+                            break; // Skip rest of samples in this record
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                };
 
                 let sample_offset_nanos = (1_000_000_000.0 / measurement_frequency) as i64;
                 let sample_time_nanos = page_time_nanos + sample_offset_nanos * sample_idx as i64;
@@ -419,7 +464,7 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
         sensor_table_callback(self.low_frequency_data.sensor_table());
         sensor_table_callback(self.high_frequency_data.sensor_table());
 
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -453,22 +498,21 @@ mod tests {
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
         let data = include_bytes!("../../test_data/cmi/geneactiv.bin");
-        assert!(
-            reader
-                .read(
-                    Cursor::new(data),
-                    |entry| {
-                        metadata.insert(
-                            (entry.category.to_owned(), entry.key.to_owned()),
-                            entry.value.to_owned(),
-                        );
-                    },
-                    |table| {
-                        sensor_table.insert(table.name, table);
-                    }
-                )
-                .is_ok()
+        let result = reader.read(
+            Cursor::new(data),
+            |entry| {
+                metadata.insert(
+                    (entry.category.to_owned(), entry.key.to_owned()),
+                    entry.value.to_owned(),
+                );
+            },
+            |table| {
+                sensor_table.insert(table.name, table);
+            },
+            false,
         );
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
 
         assert_eq!(metadata.len(), 45);
         assert_eq!(sensor_table.len(), 2);
@@ -573,8 +617,8 @@ mod tests {
             .unwrap();
         if let sensors::SensorDataDyn::Bool(data) = &button_state.data {
             assert_eq!(data.len(), 6000);
-            assert_eq!(data[0], false);
-            assert_eq!(data[5999], false);
+            assert!(!data[0]);
+            assert!(!data[5999]);
         } else {
             panic!("Expected bool data");
         }
@@ -606,9 +650,8 @@ mod tests {
     #[test]
     fn test_truncated_header() {
         let mut reader = GeneActivReader::new();
-        // Only 10 lines instead of required 59
         let data = b"Device Identity\nSerial:123\n\n\n\n\n\n\n\n\n";
-        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {});
+        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {}, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(

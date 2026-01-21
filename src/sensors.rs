@@ -55,13 +55,27 @@ pub struct SensorTable<'a> {
     pub data: Vec<SensorData<'a>>,
 }
 
+/// Result of reading a sensor file
+#[derive(Debug, Default)]
+pub struct ReadResult {
+    /// Warnings encountered during parsing (only populated in lenient mode)
+    pub warnings: Vec<String>,
+}
+
+impl ReadResult {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 pub trait SensorsFormatReader<'a> {
     fn read<R: std::io::Read + std::io::Seek, M, S>(
         &'a mut self,
         reader: R,
         metadata_callback: M,
         sensor_table_callback: S,
-    ) -> Result<()>
+        lenient: bool,
+    ) -> Result<ReadResult>
     where
         M: FnMut(MetadataEntry),
         S: FnMut(SensorTable<'a>);

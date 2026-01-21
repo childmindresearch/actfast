@@ -8,7 +8,7 @@ use std::io::Read;
 
 use numpy::{PyArray1, prelude::*};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use error::{ActfastError, IoResultExt};
 use sensors::SensorsFormatReader;
@@ -51,7 +51,8 @@ macro_rules! sensor_data_dyn_to_pyarray {
 }
 
 #[pyfunction]
-fn read(py: Python, path: std::path::PathBuf) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (path, lenient=false))]
+fn read(py: Python, path: std::path::PathBuf, lenient: bool) -> PyResult<Py<PyAny>> {
     let file = std::fs::File::open(&path).with_context(format!("opening '{}'", path.display()))?;
 
     let mut reader = std::io::BufReader::new(file);
@@ -103,21 +104,19 @@ fn read(py: Python, path: std::path::PathBuf) -> PyResult<Py<PyAny>> {
     let file =
         std::fs::File::open(&path).with_context(format!("reopening '{}'", path.display()))?;
 
-    match format_type {
-        file_format::FileFormat::ActigraphGt3x => {
-            actigraph::ActigraphReader::new().read(
-                file,
-                metadata_callback,
-                sensor_table_callback,
-            )?;
-        }
-        file_format::FileFormat::GeneactivBin => {
-            geneactiv::GeneActivReader::new().read(
-                file,
-                metadata_callback,
-                sensor_table_callback,
-            )?;
-        }
+    let read_result = match format_type {
+        file_format::FileFormat::ActigraphGt3x => actigraph::ActigraphReader::new().read(
+            file,
+            metadata_callback,
+            sensor_table_callback,
+            lenient,
+        )?,
+        file_format::FileFormat::GeneactivBin => geneactiv::GeneActivReader::new().read(
+            file,
+            metadata_callback,
+            sensor_table_callback,
+            lenient,
+        )?,
         file_format::FileFormat::UnknownWav => {
             return Err(ActfastError::UnsupportedFormat {
                 format: format_type,
@@ -144,6 +143,10 @@ fn read(py: Python, path: std::path::PathBuf) -> PyResult<Py<PyAny>> {
     dict.set_item("format", format_type.to_string())?;
     dict.set_item("timeseries", dict_timeseries)?;
     dict.set_item("metadata", dict_metadata)?;
+
+    // Add warnings if any
+    let warnings_list = PyList::new(py, &read_result.warnings)?;
+    dict.set_item("warnings", warnings_list)?;
 
     Ok(dict.into())
 }

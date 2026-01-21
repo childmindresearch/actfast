@@ -323,11 +323,14 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         reader: R,
         mut metadata_callback: M,
         mut sensor_table_callback: S,
-    ) -> Result<()>
+        lenient: bool,
+    ) -> Result<sensors::ReadResult>
     where
         M: FnMut(sensors::MetadataEntry),
         S: FnMut(sensors::SensorTable<'a>),
     {
+        let mut result = sensors::ReadResult::new();
+
         let mut archive = zip::ZipArchive::new(reader).map_err(|e| ActfastError::Parse {
             format: FileFormat::ActigraphGt3x,
             message: format!("failed to open ZIP archive: {}", e),
@@ -397,11 +400,22 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         let mut metadata_counter = 0;
 
         while let Some(record_result) = it.next(&mut record_data) {
-            let (record_header, record_data) = record_result.map_err(|e| ActfastError::Parse {
-                format: FileFormat::ActigraphGt3x,
-                message: e.to_string(),
-                location: it.location(),
-            })?;
+            let (record_header, record_data) = match record_result {
+                Ok(data) => data,
+                Err(e) => {
+                    let error = ActfastError::Parse {
+                        format: FileFormat::ActigraphGt3x,
+                        message: e.to_string(),
+                        location: it.location(),
+                    };
+                    if lenient {
+                        result.warnings.push(error.to_string());
+                        break; // Stop processing but return what we have
+                    } else {
+                        return Err(error);
+                    }
+                }
+            };
 
             match LogRecordType::from_u8(record_header.record_type) {
                 LogRecordType::Metadata => {
@@ -537,7 +551,7 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
             }],
         });
 
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -554,22 +568,21 @@ mod tests {
         let mut reader = ActigraphReader::new();
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
-        assert!(
-            reader
-                .read(
-                    Cursor::new(data),
-                    |entry| {
-                        metadata.insert(
-                            (entry.category.to_owned(), entry.key.to_owned()),
-                            entry.value.to_owned(),
-                        );
-                    },
-                    |table| {
-                        sensor_table.insert(table.name, table);
-                    }
-                )
-                .is_ok()
+        let result = reader.read(
+            Cursor::new(data),
+            |entry| {
+                metadata.insert(
+                    (entry.category.to_owned(), entry.key.to_owned()),
+                    entry.value.to_owned(),
+                );
+            },
+            |table| {
+                sensor_table.insert(table.name, table);
+            },
+            false,
         );
+        assert!(result.is_ok());
+        assert!(result.unwrap().warnings.is_empty());
 
         assert_eq!(metadata.len(), 25);
         assert_eq!(sensor_table.len(), 4);
@@ -631,7 +644,7 @@ mod tests {
     fn test_invalid_zip() {
         let mut reader = ActigraphReader::new();
         let data = b"not a zip file";
-        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {});
+        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {}, false);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
