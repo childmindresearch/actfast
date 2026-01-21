@@ -173,7 +173,7 @@ impl std::fmt::Display for ParameterType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DeviceFeatures {
     pub heart_rate_monitor: bool,
     pub data_summary: bool,
@@ -181,17 +181,4 @@ pub struct DeviceFeatures {
     pub proximity_tagging: bool,
     pub epoch_data: bool,
     pub no_raw_data: bool,
-}
-
-impl DeviceFeatures {
-    pub fn new() -> DeviceFeatures {
-        DeviceFeatures {
-            heart_rate_monitor: false,
-            data_summary: false,
-            sleep_mode: false,
-            proximity_tagging: false,
-            epoch_data: false,
-            no_raw_data: false,
-        }
-    }
 }

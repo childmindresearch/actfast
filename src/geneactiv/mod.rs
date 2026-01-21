@@ -2,6 +2,7 @@
 
 mod defs;
 
+use crate::error::{ActfastError, FileLocation, Result};
 use crate::geneactiv::defs::*;
 use crate::sensors;
 
@@ -16,21 +17,39 @@ pub struct SampleDataUncalibrated {
 }
 
 impl SampleDataUncalibrated {
-    pub fn read(bitreader: &mut bitreader::BitReader) -> SampleDataUncalibrated {
-        let x = bitreader.read_i16(12).unwrap();
-        let y = bitreader.read_i16(12).unwrap();
-        let z = bitreader.read_i16(12).unwrap();
-        let light = bitreader.read_u16(10).unwrap();
-        let button_state = bitreader.read_bool().unwrap();
-        bitreader.skip(1).unwrap();
+    pub fn read(
+        bitreader: &mut bitreader::BitReader,
+        location: &FileLocation,
+    ) -> Result<SampleDataUncalibrated> {
+        let make_err = |context: &'static str| ActfastError::BitRead {
+            context: context.to_string(),
+            location: location.clone(),
+        };
 
-        SampleDataUncalibrated {
+        let x = bitreader
+            .read_i16(12)
+            .map_err(|_| make_err("accelerometer X"))?;
+        let y = bitreader
+            .read_i16(12)
+            .map_err(|_| make_err("accelerometer Y"))?;
+        let z = bitreader
+            .read_i16(12)
+            .map_err(|_| make_err("accelerometer Z"))?;
+        let light = bitreader
+            .read_u16(10)
+            .map_err(|_| make_err("light sensor"))?;
+        let button_state = bitreader
+            .read_bool()
+            .map_err(|_| make_err("button state"))?;
+        bitreader.skip(1).map_err(|_| make_err("padding bit"))?;
+
+        Ok(SampleDataUncalibrated {
             x,
             y,
             z,
             light,
             button_state,
-        }
+        })
     }
 
     pub fn calibrate(&self, cal: &CalibrationData) -> SampleDataCalibrated {
@@ -54,41 +73,55 @@ pub struct SampleDataCalibrated {
 
 fn read_prefixed<'a>(s: &'a str, prefix: &str, spacing: usize) -> Option<&'a str> {
     if s.starts_with(prefix) {
-        Some(&s[prefix.len()+spacing..])
+        Some(&s[prefix.len() + spacing..])
     } else {
         None
     }
 }
 
-fn parse_value<'a, T>(s: &str, prefix: &str, spacing: usize) -> Option<T>
+fn parse_value<T>(s: &str, prefix: &str, spacing: usize) -> Option<T>
 where
     T: std::str::FromStr,
 {
     read_prefixed(s, prefix, spacing).and_then(|v| v.trim().parse::<T>().ok())
 }
 
-pub fn read_n_lines<R: BufRead>(reader: &mut R, lines: &mut [String]) -> Option<()> {
-    for i in 0..lines.len() {
-        let l = &mut lines[i];
-        l.clear();
-        let r = reader.read_line(l);
-        // if r is None or Some(0), we're done
-        if r.ok()? == 0 {
-            return None;
+/// Read exactly N lines from a reader, returning the line count actually read
+pub fn read_n_lines<R: BufRead>(
+    reader: &mut R,
+    lines: &mut [String],
+    start_line: usize,
+) -> Result<usize> {
+    for (i, line) in lines.iter_mut().enumerate() {
+        line.clear();
+        match reader.read_line(line) {
+            Ok(0) => return Ok(i), // EOF reached
+            Ok(_) => {}
+            Err(e) => {
+                return Err(ActfastError::Io {
+                    source: e,
+                    context: format!("reading line {}", start_line + i),
+                });
+            }
         }
     }
-    Some(())
+    Ok(lines.len())
 }
 
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    (0..(s.len() - (s.len() % 2)))  // ignore last byte if odd
+pub fn decode_hex(s: &str, location: FileLocation) -> Result<Vec<u8>> {
+    let s = s.trim();
+    (0..(s.len() - (s.len() % 2)))
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .map(|i| {
+            u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| ActfastError::InvalidHex {
+                value: s.to_string(),
+                location: location.clone(),
+            })
+        })
         .collect()
 }
 
 #[derive(Debug)]
-
 pub struct CalibrationData {
     pub x_gain: i32,
     pub x_offset: i32,
@@ -100,9 +133,9 @@ pub struct CalibrationData {
     pub lux: i32,
 }
 
-impl CalibrationData {
-    pub fn new() -> CalibrationData {
-        CalibrationData {
+impl Default for CalibrationData {
+    fn default() -> Self {
+        Self {
             x_gain: 1,
             x_offset: 0,
             y_gain: 1,
@@ -115,6 +148,7 @@ impl CalibrationData {
     }
 }
 
+#[derive(Default)]
 pub struct HighFrequencySensorData {
     pub time: Vec<i64>,
     pub acceleration: Vec<f32>,
@@ -123,15 +157,6 @@ pub struct HighFrequencySensorData {
 }
 
 impl HighFrequencySensorData {
-    pub fn new() -> HighFrequencySensorData {
-        HighFrequencySensorData {
-            time: Vec::new(),
-            acceleration: Vec::new(),
-            light: Vec::new(),
-            button_state: Vec::new(),
-        }
-    }
-
     pub fn reserve(&mut self, num_measurements: usize) {
         self.time.reserve(num_measurements);
         self.acceleration.reserve(num_measurements * 3);
@@ -170,6 +195,7 @@ impl HighFrequencySensorData {
     }
 }
 
+#[derive(Default)]
 pub struct LowFrequencySensorData {
     pub time: Vec<i64>,
     pub temperature: Vec<f32>,
@@ -177,14 +203,6 @@ pub struct LowFrequencySensorData {
 }
 
 impl LowFrequencySensorData {
-    pub fn new() -> LowFrequencySensorData {
-        LowFrequencySensorData {
-            time: Vec::new(),
-            temperature: Vec::new(),
-            battery_voltage: Vec::new(),
-        }
-    }
-
     pub fn reserve(&mut self, num_measurements: usize) {
         self.time.reserve(num_measurements);
         self.temperature.reserve(num_measurements);
@@ -215,17 +233,15 @@ impl LowFrequencySensorData {
     }
 }
 
+#[derive(Default)]
 pub struct GeneActivReader {
     pub high_frequency_data: HighFrequencySensorData,
     pub low_frequency_data: LowFrequencySensorData,
 }
 
 impl GeneActivReader {
-    pub fn new() -> GeneActivReader {
-        GeneActivReader {
-            high_frequency_data: HighFrequencySensorData::new(),
-            low_frequency_data: LowFrequencySensorData::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn reserve(&mut self, num_records: usize, measurements_per_record: usize) {
@@ -235,13 +251,16 @@ impl GeneActivReader {
     }
 }
 
+const HEADER_LINES: usize = 59;
+const RECORD_LINES: usize = 10;
+
 impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
     fn read<R: std::io::Read + std::io::Seek, M, S>(
         &'a mut self,
         reader: R,
         mut metadata_callback: M,
         mut sensor_table_callback: S,
-    ) -> Result<(), String>
+    ) -> Result<()>
     where
         M: FnMut(sensors::MetadataEntry),
         S: FnMut(sensors::SensorTable<'a>),
@@ -250,31 +269,41 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
 
         let mut number_of_pages: usize = 0;
         let mut data_reserved = false;
-        let mut calibration_data = CalibrationData::new();
+        let mut calibration_data = CalibrationData::default();
 
-        // the header is 59 lines long
-        let mut lines_header = vec![String::new(); 59];
-        read_n_lines(&mut buf_reader, &mut lines_header);
+        // Read header (59 lines)
+        let mut lines_header = vec![String::new(); HEADER_LINES];
+        let lines_read = read_n_lines(&mut buf_reader, &mut lines_header, 1)?;
+
+        if lines_read < HEADER_LINES {
+            return Err(ActfastError::UnexpectedEof {
+                context: format!(
+                    "while reading header (expected {} lines, got {})",
+                    HEADER_LINES, lines_read
+                ),
+                location: FileLocation::at_line(lines_read),
+            });
+        }
 
         let mut last_category = String::new();
-        for line in lines_header.iter() {
+        for line in &lines_header {
             let line = line.trim();
-            // continue if line is empty
             if line.is_empty() {
                 continue;
             }
-            // find colon position
-            let colon = line.find(':');
 
-            if colon.is_none() {
-                last_category = line.to_string();
-                continue;
-            }
+            let colon = match line.find(':') {
+                Some(pos) => pos,
+                None => {
+                    last_category = line.to_string();
+                    continue;
+                }
+            };
 
             let entry = sensors::MetadataEntry {
                 category: &last_category,
-                key: &line[..colon.unwrap()],
-                value: &line[colon.unwrap() + 1..],
+                key: &line[..colon],
+                value: &line[colon + 1..],
             };
 
             // Extract number of pages for data reservation
@@ -285,90 +314,108 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
             }
             // Extract calibration data
             else if entry.category == defs::id::calibration::HEADER {
-                if let Some(x_gain) = parse_value(line, id::calibration::X_GAIN, 1) {
-                    calibration_data.x_gain = x_gain;
-                } else if let Some(x_offset) = parse_value(line, id::calibration::X_OFFSET, 1) {
-                    calibration_data.x_offset = x_offset;
-                } else if let Some(y_gain) = parse_value(line, id::calibration::Y_GAIN, 1) {
-                    calibration_data.y_gain = y_gain;
-                } else if let Some(y_offset) = parse_value(line, id::calibration::Y_OFFSET, 1) {
-                    calibration_data.y_offset = y_offset;
-                } else if let Some(z_gain) = parse_value(line, id::calibration::Z_GAIN, 1) {
-                    calibration_data.z_gain = z_gain;
-                } else if let Some(z_offset) = parse_value(line, id::calibration::Z_OFFSET, 1) {
-                    calibration_data.z_offset = z_offset;
-                } else if let Some(volts) = parse_value(line, id::calibration::VOLTS, 1) {
-                    calibration_data.volts = volts;
-                } else if let Some(lux) = parse_value(line, id::calibration::LUX, 1) {
-                    calibration_data.lux = lux;
+                if let Some(v) = parse_value(line, id::calibration::X_GAIN, 1) {
+                    calibration_data.x_gain = v;
+                } else if let Some(v) = parse_value(line, id::calibration::X_OFFSET, 1) {
+                    calibration_data.x_offset = v;
+                } else if let Some(v) = parse_value(line, id::calibration::Y_GAIN, 1) {
+                    calibration_data.y_gain = v;
+                } else if let Some(v) = parse_value(line, id::calibration::Y_OFFSET, 1) {
+                    calibration_data.y_offset = v;
+                } else if let Some(v) = parse_value(line, id::calibration::Z_GAIN, 1) {
+                    calibration_data.z_gain = v;
+                } else if let Some(v) = parse_value(line, id::calibration::Z_OFFSET, 1) {
+                    calibration_data.z_offset = v;
+                } else if let Some(v) = parse_value(line, id::calibration::VOLTS, 1) {
+                    calibration_data.volts = v;
+                } else if let Some(v) = parse_value(line, id::calibration::LUX, 1) {
+                    calibration_data.lux = v;
                 }
             }
 
             metadata_callback(entry);
         }
 
-        let mut lines_record = vec![String::new(); 10];
+        // Read data records
+        let mut lines_record = vec![String::new(); RECORD_LINES];
+        let mut current_line = HEADER_LINES + 1;
+        let mut record_index: usize = 0;
 
-        while Some(()) == read_n_lines(&mut buf_reader, &mut lines_record) {
+        loop {
+            let lines_read = read_n_lines(&mut buf_reader, &mut lines_record, current_line)?;
+            if lines_read == 0 {
+                break; // Normal EOF
+            }
+            if lines_read < RECORD_LINES {
+                return Err(ActfastError::UnexpectedEof {
+                    context: format!(
+                        "incomplete record (expected {} lines, got {})",
+                        RECORD_LINES, lines_read
+                    ),
+                    location: FileLocation::at_record(record_index).with_sample(0),
+                });
+            }
+
+            let record_location = FileLocation::at_record(record_index);
+
             if !data_reserved {
-                // need to look at the first record to know how much data to reserve
-                self.reserve(number_of_pages, lines_record[9].as_bytes().len() / 6);
+                let samples_per_record = lines_record[9].trim().len() / 12; // 6 bytes = 12 hex chars
+                self.reserve(number_of_pages, samples_per_record);
                 data_reserved = true;
             }
 
-            // read record header
+            // Parse record header
             let mut measurement_frequency: f32 = 1.0;
             let mut page_time = chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap();
             let mut temperature: f32 = 0.0;
             let mut battery_voltage: f32 = 0.0;
 
-            for i in 0..9 {
-                let line = lines_record[i].trim();
-                if let Some(measurement_frequency_) =
-                    parse_value(line, id::record::MEASUREMENT_FREQUENCY, 1)
-                {
-                    measurement_frequency = measurement_frequency_;
-                } else if let Some(page_time_str) = parse_value(line, id::record::PAGE_TIME, 1) {
-                    let _: String = page_time_str;
-                    page_time = defs::parse_date_time(&page_time_str);
-                } else if let Some(temperature_) = parse_value(line, id::record::TEMPERATURE, 1) {
-                    temperature = temperature_;
-                } else if let Some(battery_voltage_) =
-                    parse_value(line, id::record::BATTERY_VOLTAGE, 1)
-                {
-                    battery_voltage = battery_voltage_;
+            for line in lines_record.iter().take(9) {
+                let line = line.trim();
+                if let Some(freq) = parse_value(line, id::record::MEASUREMENT_FREQUENCY, 1) {
+                    measurement_frequency = freq;
+                } else if let Some(time_str) = read_prefixed(line, id::record::PAGE_TIME, 1) {
+                    page_time = defs::parse_date_time(time_str.trim(), record_location.clone())?;
+                } else if let Some(temp) = parse_value(line, id::record::TEMPERATURE, 1) {
+                    temperature = temp;
+                } else if let Some(bv) = parse_value(line, id::record::BATTERY_VOLTAGE, 1) {
+                    battery_voltage = bv;
                 }
             }
 
-            self.low_frequency_data.push(
-                page_time.timestamp_nanos_opt().unwrap_or(0),
-                temperature,
-                battery_voltage,
-            );
+            let page_time_nanos =
+                page_time
+                    .timestamp_nanos_opt()
+                    .ok_or_else(|| ActfastError::InvalidDateTime {
+                        value: page_time.to_string(),
+                        format: "timestamp out of nanosecond range",
+                        location: record_location.clone(),
+                    })?;
 
-            // read record data
+            self.low_frequency_data
+                .push(page_time_nanos, temperature, battery_voltage);
 
-            let buf = decode_hex(&lines_record[9].trim()).unwrap_or_else(|_| {
-                //println!("Warning: Error decoding hex string");
-                Vec::new()
-            });
+            // Parse sample data (hex-encoded binary)
+            let hex_data = lines_record[9].trim();
+            let buf = decode_hex(hex_data, record_location.clone())?;
             let mut bitreader = bitreader::BitReader::new(buf.as_slice());
 
-            for i in 0..buf.len() / 6 {
-                let sample =
-                    SampleDataUncalibrated::read(&mut bitreader).calibrate(&calibration_data);
+            let num_samples = buf.len() / 6;
+            for sample_idx in 0..num_samples {
+                let sample_location = record_location.clone().with_sample(sample_idx);
+                let sample = SampleDataUncalibrated::read(&mut bitreader, &sample_location)?
+                    .calibrate(&calibration_data);
 
-                let sample_time = page_time
-                    + chrono::Duration::nanoseconds(
-                        (1_000_000_000.0 / measurement_frequency) as i64 * i as i64,
-                    );
+                let sample_offset_nanos = (1_000_000_000.0 / measurement_frequency) as i64;
+                let sample_time_nanos = page_time_nanos + sample_offset_nanos * sample_idx as i64;
 
-                self.high_frequency_data
-                    .push(sample_time.timestamp_nanos_opt().unwrap(), sample);
+                self.high_frequency_data.push(sample_time_nanos, sample);
             }
+
+            current_line += RECORD_LINES;
+            record_index += 1;
         }
 
-        // callback for sensor tables
         sensor_table_callback(self.low_frequency_data.sensor_table());
         sensor_table_callback(self.high_frequency_data.sensor_table());
 
@@ -380,21 +427,24 @@ impl<'a> sensors::SensorsFormatReader<'a> for GeneActivReader {
 mod tests {
     use super::*;
     use crate::sensors::SensorsFormatReader;
-    use std::{collections::HashMap, io::Cursor};
     use assert_approx_eq::assert_approx_eq;
+    use std::{collections::HashMap, io::Cursor};
 
     #[test]
     fn test_read_n_lines() {
         let s = "line1\nline2\nline3\n";
         let mut reader = BufReader::new(s.as_bytes());
         let mut lines = vec![String::new(); 2];
-        read_n_lines(&mut reader, &mut lines);
+        let _ = read_n_lines(&mut reader, &mut lines, 0);
         assert_eq!(lines, vec!["line1\n", "line2\n"]);
     }
 
     #[test]
     fn test_decode_hex() {
-        assert_eq!(decode_hex("010203FFAC"), Ok(vec![0x01, 0x02, 0x03, 0xFF, 0xAC]));
+        assert_eq!(
+            decode_hex("010203FFAC", FileLocation::new()).ok(),
+            Some(vec![0x01, 0x02, 0x03, 0xFF, 0xAC])
+        );
     }
 
     #[test]
@@ -403,20 +453,22 @@ mod tests {
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
         let data = include_bytes!("../../test_data/cmi/geneactiv.bin");
-        assert!(reader
-            .read(
-                Cursor::new(data),
-                |entry| {
-                    metadata.insert(
-                        (entry.category.to_owned(), entry.key.to_owned()),
-                        entry.value.to_owned(),
-                    );
-                },
-                |table| {
-                    sensor_table.insert(table.name, table);
-                }
-            )
-            .is_ok());
+        assert!(
+            reader
+                .read(
+                    Cursor::new(data),
+                    |entry| {
+                        metadata.insert(
+                            (entry.category.to_owned(), entry.key.to_owned()),
+                            entry.value.to_owned(),
+                        );
+                    },
+                    |table| {
+                        sensor_table.insert(table.name, table);
+                    }
+                )
+                .is_ok()
+        );
 
         assert_eq!(metadata.len(), 45);
         assert_eq!(sensor_table.len(), 2);
@@ -443,7 +495,7 @@ mod tests {
             chrono::DateTime::<chrono::Utc>::from_timestamp(1714490110, 0)
                 .unwrap()
                 .timestamp_nanos_opt()
-                .unwrap(), 
+                .unwrap(),
             1_000_000_000
         );
 
@@ -464,7 +516,11 @@ mod tests {
 
         // Temperature
 
-        let temperature = low_frequency.data.iter().find(|d| d.kind == sensors::SensorKind::Temperature).unwrap();
+        let temperature = low_frequency
+            .data
+            .iter()
+            .find(|d| d.kind == sensors::SensorKind::Temperature)
+            .unwrap();
         if let sensors::SensorDataDyn::F32(data) = &temperature.data {
             assert_eq!(data.len(), 20);
             assert_approx_eq!(data[0], 35.8, 1e-6);
@@ -475,7 +531,11 @@ mod tests {
 
         // Light
 
-        let light = high_frequency.data.iter().find(|d| d.kind == sensors::SensorKind::Light).unwrap();
+        let light = high_frequency
+            .data
+            .iter()
+            .find(|d| d.kind == sensors::SensorKind::Light)
+            .unwrap();
         if let sensors::SensorDataDyn::F32(data) = &light.data {
             assert_eq!(data.len(), 6000);
             assert_approx_eq!(data[0], 0.0, 1e-6);
@@ -486,7 +546,11 @@ mod tests {
 
         // Accelerometer
 
-        let acceleration = high_frequency.data.iter().find(|d| d.kind == sensors::SensorKind::Accelerometer).unwrap();
+        let acceleration = high_frequency
+            .data
+            .iter()
+            .find(|d| d.kind == sensors::SensorKind::Accelerometer)
+            .unwrap();
         if let sensors::SensorDataDyn::F32(data) = &acceleration.data {
             assert_eq!(data.len(), 6000 * 3);
             assert_approx_eq!(data[0], 0.943648595, 1e-6);
@@ -502,7 +566,11 @@ mod tests {
 
         // Button state
 
-        let button_state = high_frequency.data.iter().find(|d| d.kind == sensors::SensorKind::ButtonState).unwrap();
+        let button_state = high_frequency
+            .data
+            .iter()
+            .find(|d| d.kind == sensors::SensorKind::ButtonState)
+            .unwrap();
         if let sensors::SensorDataDyn::Bool(data) = &button_state.data {
             assert_eq!(data.len(), 6000);
             assert_eq!(data[0], false);
@@ -513,7 +581,11 @@ mod tests {
 
         // Battery voltage
 
-        let battery_voltage = low_frequency.data.iter().find(|d| d.kind == sensors::SensorKind::BatteryVoltage).unwrap();
+        let battery_voltage = low_frequency
+            .data
+            .iter()
+            .find(|d| d.kind == sensors::SensorKind::BatteryVoltage)
+            .unwrap();
         if let sensors::SensorDataDyn::F32(data) = &battery_voltage.data {
             assert_eq!(data.len(), 20);
             assert_approx_eq!(data[0], 4.00, 1e-6);
@@ -521,6 +593,27 @@ mod tests {
         } else {
             panic!("Expected f32 data");
         }
+    }
 
+    #[test]
+    fn test_invalid_hex() {
+        let result = decode_hex("GGGG", FileLocation::new());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, crate::error::ActfastError::InvalidHex { .. }));
+    }
+
+    #[test]
+    fn test_truncated_header() {
+        let mut reader = GeneActivReader::new();
+        // Only 10 lines instead of required 59
+        let data = b"Device Identity\nSerial:123\n\n\n\n\n\n\n\n\n";
+        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {});
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::ActfastError::UnexpectedEof { .. }
+        ));
     }
 }

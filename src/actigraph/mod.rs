@@ -1,8 +1,8 @@
-// actigraph .gt3x file format
-
 mod defs;
 mod ssp_codec;
 
+use crate::error::{ActfastError, FileLocation, Result};
+use crate::file_format::FileFormat;
 use crate::{actigraph::defs::*, sensors};
 use bitreader::BitReader;
 use chrono::{TimeDelta, Utc};
@@ -19,6 +19,7 @@ fn datetime_add_hz(
     .unwrap_or(dt)
 }
 
+#[derive(Default)]
 pub struct AccelerometerData {
     pub acceleration_time: Vec<i64>,
     pub acceleration: Vec<f32>,
@@ -34,19 +35,6 @@ pub struct AccelerometerData {
 }
 
 impl AccelerometerData {
-    pub fn new() -> AccelerometerData {
-        AccelerometerData {
-            acceleration_time: Vec::new(),
-            acceleration: Vec::new(),
-            lux_time: Vec::new(),
-            lux: Vec::new(),
-            capsense_time: Vec::new(),
-            capsense: Vec::new(),
-            battery_voltage_time: Vec::new(),
-            battery_voltage: Vec::new(),
-        }
-    }
-
     fn estimate(sample_rate: usize, date_start: usize, date_end: usize) -> Option<(usize, usize)> {
         if date_start >= date_end {
             return None;
@@ -70,8 +58,6 @@ impl AccelerometerData {
     }
 
     pub fn reserve(&mut self, samples: usize, seconds: usize) {
-        // These are estimates, reserving about 1.6 times the actual size in our test data
-
         self.acceleration_time.reserve(samples);
         self.acceleration.reserve(samples * 3);
 
@@ -84,9 +70,7 @@ impl AccelerometerData {
     }
 
     pub fn reserve_estimate(&mut self, sample_rate: usize, date_start: usize, date_end: usize) {
-        let estimate = AccelerometerData::estimate(sample_rate, date_start, date_end);
-
-        if let Some((samples, seconds)) = estimate {
+        if let Some((samples, seconds)) = Self::estimate(sample_rate, date_start, date_end) {
             self.reserve(samples, seconds);
         } else {
             self.reserve_default();
@@ -115,7 +99,7 @@ impl LogRecordHeader {
         }
     }
 
-    fn valid_seperator(&self) -> bool {
+    fn valid_separator(&self) -> bool {
         self.separator == 0x1E
     }
 
@@ -141,53 +125,112 @@ impl std::fmt::Debug for LogRecordHeader {
     }
 }
 
-struct LogRecordIterator<R: Read> {
-    buffer: R,
+/// Error type for log record iteration
+#[derive(Debug)]
+pub enum LogRecordError {
+    InvalidSeparator { got: u8, offset: u64 },
+    RecordTooLarge { size: u16, max: usize },
+    UnexpectedEof { context: &'static str },
 }
 
-impl<R: Read> LogRecordIterator<R> {
-    fn new(buffer: R) -> LogRecordIterator<R> {
-        LogRecordIterator { buffer: buffer }
-    }
-}
-
-impl<R: Read> LogRecordIterator<R> {
-    fn next<'a>(
-        &mut self,
-        data: &'a mut [u8],
-    ) -> Option<std::result::Result<(LogRecordHeader, &'a [u8]), &'static str>> {
-        let mut header = [0u8; 8];
-        match self.buffer.read_exact(&mut header) {
-            Ok(_) => {
-                let record_header = LogRecordHeader::from_bytes(&header);
-
-                if !record_header.valid_seperator()
-                    || (record_header.record_size as usize + 1) >= data.len()
-                {
-                    return Some(Err("File read aborted after encountering invalid record"));
-                }
-
-                let mut data = &mut data[0..record_header.record_size as usize + 1];
-
-                match self.buffer.read_exact(&mut data) {
-                    Ok(_) => Some(Ok((record_header, data))),
-                    Err(_) => Some(Err("Unexpected end of file")),
-                }
+impl std::fmt::Display for LogRecordError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogRecordError::InvalidSeparator { got, offset } => {
+                write!(
+                    f,
+                    "invalid record separator 0x{:02x} at byte offset {}",
+                    got, offset
+                )
             }
-            Err(_) => None,
+            LogRecordError::RecordTooLarge { size, max } => {
+                write!(f, "record size {} exceeds maximum {}", size, max)
+            }
+            LogRecordError::UnexpectedEof { context } => {
+                write!(f, "unexpected end of file while reading {}", context)
+            }
         }
     }
 }
 
+struct LogRecordIterator<R: Read> {
+    reader: R,
+    byte_offset: u64,
+    record_index: usize,
+}
+
+impl<R: Read> LogRecordIterator<R> {
+    fn new(reader: R) -> LogRecordIterator<R> {
+        LogRecordIterator {
+            reader,
+            byte_offset: 0,
+            record_index: 0,
+        }
+    }
+
+    fn next<'a>(
+        &mut self,
+        data: &'a mut [u8],
+    ) -> Option<std::result::Result<(LogRecordHeader, &'a [u8]), LogRecordError>> {
+        let mut header = [0u8; 8];
+        match self.reader.read_exact(&mut header) {
+            Ok(_) => {
+                let record_header = LogRecordHeader::from_bytes(&header);
+                self.byte_offset += 8;
+
+                if !record_header.valid_separator() {
+                    return Some(Err(LogRecordError::InvalidSeparator {
+                        got: record_header.separator,
+                        offset: self.byte_offset - 8,
+                    }));
+                }
+
+                let record_size = record_header.record_size as usize + 1;
+                if record_size > data.len() {
+                    return Some(Err(LogRecordError::RecordTooLarge {
+                        size: record_header.record_size,
+                        max: data.len(),
+                    }));
+                }
+
+                let data = &mut data[0..record_size];
+
+                match self.reader.read_exact(data) {
+                    Ok(_) => {
+                        self.byte_offset += record_size as u64;
+                        self.record_index += 1;
+                        Some(Ok((record_header, data)))
+                    }
+                    Err(_) => Some(Err(LogRecordError::UnexpectedEof {
+                        context: "record data",
+                    })),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => None, // Normal EOF
+            Err(_) => Some(Err(LogRecordError::UnexpectedEof {
+                context: "record header",
+            })),
+        }
+    }
+
+    fn location(&self) -> FileLocation {
+        FileLocation {
+            byte_offset: Some(self.byte_offset),
+            line_number: None,
+            record_index: Some(self.record_index),
+            sample_index: None,
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct ActigraphReader {
     data: AccelerometerData,
 }
 
 impl ActigraphReader {
     pub fn new() -> ActigraphReader {
-        ActigraphReader {
-            data: AccelerometerData::new(),
-        }
+        Self::default()
     }
 }
 
@@ -201,14 +244,24 @@ struct Parameters {
     device_features: DeviceFeatures,
 }
 
-fn parse_parameters(record_data: &[u8]) -> Parameters {
-    let mut params = Parameters {
-        sample_rate: 30,
-        accel_scale: 1.0,
-        device_features: DeviceFeatures::new(),
-    };
+impl Default for Parameters {
+    fn default() -> Self {
+        Self {
+            sample_rate: 30,
+            accel_scale: 1.0,
+            device_features: DeviceFeatures::default(),
+        }
+    }
+}
 
-    for offset in (0..record_data.len() - 1).step_by(8) {
+fn parse_parameters(record_data: &[u8]) -> Parameters {
+    let mut params = Parameters::default();
+
+    for offset in (0..record_data.len().saturating_sub(1)).step_by(8) {
+        if offset + 8 > record_data.len() {
+            break;
+        }
+
         let param_type = u32::from_le_bytes([
             record_data[offset],
             record_data[offset + 1],
@@ -220,31 +273,23 @@ fn parse_parameters(record_data: &[u8]) -> Parameters {
 
         let parameter_type = ParameterType::from_u16(param_address_space, param_identifier);
 
+        let value_bytes = [
+            record_data[offset + 4],
+            record_data[offset + 5],
+            record_data[offset + 6],
+            record_data[offset + 7],
+        ];
+
         match parameter_type {
             ParameterType::SampleRate => {
-                params.sample_rate = u32::from_le_bytes([
-                    record_data[offset + 4],
-                    record_data[offset + 5],
-                    record_data[offset + 6],
-                    record_data[offset + 7],
-                ]);
+                params.sample_rate = u32::from_le_bytes(value_bytes);
             }
             ParameterType::AccelScale => {
-                let ssp_val = u32::from_le_bytes([
-                    record_data[offset + 4],
-                    record_data[offset + 5],
-                    record_data[offset + 6],
-                    record_data[offset + 7],
-                ]);
+                let ssp_val = u32::from_le_bytes(value_bytes);
                 params.accel_scale = ssp_codec::decode(ssp_val) as f32;
             }
             ParameterType::FeatureEnable => {
-                let x = u32::from_le_bytes([
-                    record_data[offset + 4],
-                    record_data[offset + 5],
-                    record_data[offset + 6],
-                    record_data[offset + 7],
-                ]);
+                let x = u32::from_le_bytes(value_bytes);
                 params.device_features = DeviceFeatures {
                     heart_rate_monitor: x & 1 != 0,
                     data_summary: x & 2 != 0,
@@ -254,15 +299,7 @@ fn parse_parameters(record_data: &[u8]) -> Parameters {
                     no_raw_data: x & 32 != 0,
                 };
             }
-            _ => {
-                /*let val = u32::from_le_bytes([
-                    data[offset + 4],
-                    data[offset + 5],
-                    data[offset + 6],
-                    data[offset + 7],
-                ]);
-                println!("Unhandled parameter type: {:?}={}", parameter_type, val);*/
-            }
+            _ => {}
         }
     }
     params
@@ -277,7 +314,7 @@ fn parse_battery_voltage(data: &[u8]) -> u16 {
 }
 
 fn parse_capsense(data: &[u8]) -> bool {
-    data[4] != 0
+    data.get(4).is_some_and(|&b| b != 0)
 }
 
 impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
@@ -286,78 +323,85 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         reader: R,
         mut metadata_callback: M,
         mut sensor_table_callback: S,
-    ) -> Result<(), String>
+    ) -> Result<()>
     where
         M: FnMut(sensors::MetadataEntry),
         S: FnMut(sensors::SensorTable<'a>),
     {
-        let mut archive = zip::ZipArchive::new(reader).or(Err("Could not open zip archive"))?;
+        let mut archive = zip::ZipArchive::new(reader).map_err(|e| ActfastError::Parse {
+            format: FileFormat::ActigraphGt3x,
+            message: format!("failed to open ZIP archive: {}", e),
+            location: FileLocation::new(),
+        })?;
 
-        // read metadat
+        // Read metadata from info.txt
         let mut header_sample_rate: usize = 30;
         let mut header_date_start: usize = 0;
         let mut header_date_end: usize = 0;
 
-        // Read the file line by line and parse into dictionary
-        for line in BufReader::new(
-            archive
-                .by_name(GT3X_FILE_INFO)
-                .or(Err("Could not open info file"))?,
-        )
-        .lines()
-        {
-            if let Ok(line) = line {
-                let parts: Vec<&str> = line.splitn(2, ": ").collect();
-                if parts.len() == 2 {
-                    metadata_callback(sensors::MetadataEntry {
-                        category: "info",
-                        key: parts[0],
-                        value: parts[1],
-                    });
+        let info_file = archive
+            .by_name(GT3X_FILE_INFO)
+            .map_err(|_| ActfastError::Parse {
+                format: FileFormat::ActigraphGt3x,
+                message: format!("missing required file '{}' in archive", GT3X_FILE_INFO),
+                location: FileLocation::new(),
+            })?;
 
-                    match parts[0] {
-                        "Sample Rate" => {
-                            header_sample_rate = parts[1].parse().unwrap_or(30);
-                        }
-                        "Start Date" => {
-                            header_date_start = parts[1].parse().unwrap_or(0);
-                        }
-                        "Last Sample Time" => {
-                            header_date_end = parts[1].parse().unwrap_or(0);
-                        }
-                        _ => {}
+        for (line_num, line) in BufReader::new(info_file).lines().enumerate() {
+            let line = line.map_err(|e| ActfastError::Io {
+                source: e,
+                context: format!("reading {} line {}", GT3X_FILE_INFO, line_num + 1),
+            })?;
+
+            let parts: Vec<&str> = line.splitn(2, ": ").collect();
+            if parts.len() == 2 {
+                metadata_callback(sensors::MetadataEntry {
+                    category: "info",
+                    key: parts[0],
+                    value: parts[1],
+                });
+
+                match parts[0] {
+                    "Sample Rate" => {
+                        header_sample_rate = parts[1].parse().unwrap_or(30);
                     }
+                    "Start Date" => {
+                        header_date_start = parts[1].parse().unwrap_or(0);
+                    }
+                    "Last Sample Time" => {
+                        header_date_end = parts[1].parse().unwrap_or(0);
+                    }
+                    _ => {}
                 }
             }
         }
 
-        // estimate & reserve data sizes
+        // Estimate & reserve data sizes
         self.data
             .reserve_estimate(header_sample_rate, header_date_start, header_date_end);
 
-        // read log data
+        // Read log data
+        let log_file = archive
+            .by_name(GT3X_FILE_LOG)
+            .map_err(|_| ActfastError::Parse {
+                format: FileFormat::ActigraphGt3x,
+                message: format!("missing required file '{}' in archive", GT3X_FILE_LOG),
+                location: FileLocation::new(),
+            })?;
 
-        let mut log = BufReader::new(
-            archive
-                .by_name(GT3X_FILE_LOG)
-                .or(Err("Could not open log file"))?,
-        );
-
-        let mut sample_rate = 30;
+        let mut log = BufReader::new(log_file);
+        let mut sample_rate = 30u32;
         let mut accel_scale = 1.0_f32 / 256.0_f32;
-
         let mut record_data = [0u8; u16::MAX as usize + 1];
-
         let mut it = LogRecordIterator::new(&mut log);
-
         let mut metadata_counter = 0;
 
-        while let Some(record) = it.next(&mut record_data) {
-            let (record_header, record_data) = record?;
-
-            if !record_header.valid_seperator() {
-                //println!("Invalid separator: {:x}", record_header.separator);
-            }
+        while let Some(record_result) = it.next(&mut record_data) {
+            let (record_header, record_data) = record_result.map_err(|e| ActfastError::Parse {
+                format: FileFormat::ActigraphGt3x,
+                message: e.to_string(),
+                location: it.location(),
+            })?;
 
             match LogRecordType::from_u8(record_header.record_type) {
                 LogRecordType::Metadata => {
@@ -408,13 +452,10 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
                 }
                 LogRecordType::Activity => {
                     let dt = record_header.datetime();
-
                     let mut reader = BitReader::new(&record_data[0..record_data.len() - 1]);
+                    let mut i = 0u32;
 
-                    let mut i = 0;
-
-                    while let Ok(v) = reader.read_i16(12) {
-                        let y = v;
+                    while let Ok(y) = reader.read_i16(12) {
                         let x = match reader.read_i16(12) {
                             Ok(val) => val,
                             Err(_) => break,
@@ -446,28 +487,22 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
                 }
                 LogRecordType::Battery => {
                     let voltage = parse_battery_voltage(record_data);
-
                     let timestamp_nanos = record_header.datetime_nanos();
                     self.data.battery_voltage.push(voltage);
                     self.data.battery_voltage_time.push(timestamp_nanos);
                 }
                 LogRecordType::Capsense => {
-                    //let signal = u16::from_le_bytes([data[0], data[1]]);
-                    //let reference = u16::from_le_bytes([data[2], data[3]);
                     let state = parse_capsense(record_data);
-                    //let bursts = data[5];
                     let timestamp_nanos = record_header.datetime_nanos();
                     self.data.capsense.push(state);
                     self.data.capsense_time.push(timestamp_nanos);
                 }
-                _ => {
-                    //println!("Unhandled record type: {:?}", LogRecordType::from_u8(record_header.record_type));
-                }
+                _ => {}
             }
         }
 
         sensor_table_callback(sensors::SensorTable {
-            name: sensors::SensorKind::Accelerometer.to_str(),
+            name: sensors::SensorKind::Accelerometer.as_str(),
             datetime: &self.data.acceleration_time,
             data: vec![sensors::SensorData {
                 kind: sensors::SensorKind::Accelerometer,
@@ -476,7 +511,7 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         });
 
         sensor_table_callback(sensors::SensorTable {
-            name: sensors::SensorKind::Light.to_str(),
+            name: sensors::SensorKind::Light.as_str(),
             datetime: &self.data.lux_time,
             data: vec![sensors::SensorData {
                 kind: sensors::SensorKind::Light,
@@ -485,7 +520,7 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         });
 
         sensor_table_callback(sensors::SensorTable {
-            name: sensors::SensorKind::Capacitive.to_str(),
+            name: sensors::SensorKind::Capacitive.as_str(),
             datetime: &self.data.capsense_time,
             data: vec![sensors::SensorData {
                 kind: sensors::SensorKind::Capacitive,
@@ -494,7 +529,7 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
         });
 
         sensor_table_callback(sensors::SensorTable {
-            name: sensors::SensorKind::BatteryVoltage.to_str(),
+            name: sensors::SensorKind::BatteryVoltage.as_str(),
             datetime: &self.data.battery_voltage_time,
             data: vec![sensors::SensorData {
                 kind: sensors::SensorKind::BatteryVoltage,
@@ -510,8 +545,8 @@ impl<'a> sensors::SensorsFormatReader<'a> for ActigraphReader {
 mod tests {
     use super::*;
     use crate::sensors::SensorsFormatReader;
-    use std::{collections::HashMap, io::Cursor};
     use assert_approx_eq::assert_approx_eq;
+    use std::{collections::HashMap, io::Cursor};
 
     #[test]
     fn test_actigraph_reader() {
@@ -519,20 +554,22 @@ mod tests {
         let mut reader = ActigraphReader::new();
         let mut metadata = HashMap::new();
         let mut sensor_table = HashMap::new();
-        assert!(reader
-            .read(
-                Cursor::new(data),
-                |entry| {
-                    metadata.insert(
-                        (entry.category.to_owned(), entry.key.to_owned()),
-                        entry.value.to_owned(),
-                    );
-                },
-                |table| {
-                    sensor_table.insert(table.name, table);
-                }
-            )
-            .is_ok());
+        assert!(
+            reader
+                .read(
+                    Cursor::new(data),
+                    |entry| {
+                        metadata.insert(
+                            (entry.category.to_owned(), entry.key.to_owned()),
+                            entry.value.to_owned(),
+                        );
+                    },
+                    |table| {
+                        sensor_table.insert(table.name, table);
+                    }
+                )
+                .is_ok()
+        );
 
         assert_eq!(metadata.len(), 25);
         assert_eq!(sensor_table.len(), 4);
@@ -549,13 +586,22 @@ mod tests {
 
         assert_eq!(sensor_table["acceleration"].datetime.len(), 4860);
         assert_eq!(sensor_table["acceleration"].data.len(), 1);
-        assert_eq!(sensor_table["acceleration"].data[0].kind, sensors::SensorKind::Accelerometer);
-        assert_eq!(sensor_table["acceleration"].datetime[0], 1714488780000000000);
-        assert_eq!(sensor_table["acceleration"].datetime[1], 1714488780000000000 + 1_000_000_000 / 60);
-        // always F32
+        assert_eq!(
+            sensor_table["acceleration"].data[0].kind,
+            sensors::SensorKind::Accelerometer
+        );
+        assert_eq!(
+            sensor_table["acceleration"].datetime[0],
+            1714488780000000000
+        );
+        assert_eq!(
+            sensor_table["acceleration"].datetime[1],
+            1714488780000000000 + 1_000_000_000 / 60
+        );
+
         if let sensors::SensorDataDyn::F32(data) = &sensor_table["acceleration"].data[0].data {
             assert_eq!(data.len(), 4860 * 3);
-            
+
             assert_approx_eq!(data[0], -0.519531, 1e-6);
             assert_approx_eq!(data[1], -0.519531, 1e-6);
             assert_approx_eq!(data[2], -0.636719, 1e-6);
@@ -564,11 +610,9 @@ mod tests {
             assert_approx_eq!(data[4], -0.550781, 1e-6);
             assert_approx_eq!(data[5], -0.554688, 1e-6);
 
-            // last entry
             assert_approx_eq!(data[4859 * 3], 0.117188, 1e-6);
             assert_approx_eq!(data[4859 * 3 + 1], 0.003906, 1e-6);
             assert_approx_eq!(data[4859 * 3 + 2], 0.945312, 1e-6);
-
         } else {
             panic!("Expected F32 data");
         }
@@ -581,5 +625,17 @@ mod tests {
 
         assert_eq!(sensor_table["battery_voltage"].datetime.len(), 3);
         assert_eq!(sensor_table["battery_voltage"].data.len(), 1);
+    }
+
+    #[test]
+    fn test_invalid_zip() {
+        let mut reader = ActigraphReader::new();
+        let data = b"not a zip file";
+        let result = reader.read(std::io::Cursor::new(data), |_| {}, |_| {});
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::ActfastError::Parse { .. }
+        ));
     }
 }

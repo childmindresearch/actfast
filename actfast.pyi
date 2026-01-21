@@ -1,37 +1,51 @@
-"""`actfast` is a Python package for reading raw actigraphy data of various devices and manufacturers. 
-
-It is designed to be fast, lightweight, memory efficient, and suitable for reading large datasets.
-"""
+"""Fast actigraphy data reader for Python, written in Rust."""
 
 from os import PathLike
-from pathlib import Path
-from typing import Any, Dict, Union
+from typing import TypedDict
 
-def read(path: Union[str, Path, PathLike]) -> Dict[str, Any]:
-    """Read a raw actigraphy file and return a dictionary with metadata and data.
+import numpy as np
+from numpy.typing import NDArray
 
-    The returned dictionary will contain the following:
 
-    - "format": str: File format, any of "Actigraph GT3X", "Axivity CWA", "GeneActiv BIN", "Genea BIN", "Unknown WAV", "Unknown SQLite".
-    - "metadata": Dict[str, Any]: Device specific key value pairs of metadata (e.g., device model, firmware version).
-    - "timeseries": Dict[str, Dict[str, Any]]: Device specific key value pairs of "timeseries name" -> {timeseries data}, e.g.:
-        - "high_frequency": Dict[str, Any]: High frequency timeseries data.
-            - "datetime": 1D int64 numpy array of timestamps in nanoseconds (Unix epoch time).
-            - Other data fields are various device specific sensor data, e.g.:
-                - "acceleration": 2D numpy array (n_samples x 3) of acceleration data (x, y, z).
-                - "light": 1D numpy array of light data.
-                - "temperature": Temperature data.
-                - ...
-        - "low_frequency": Dict[str, Any]: Low frequency timeseries data.
-            - Similar structure as high_frequency.
+class TimeseriesData(TypedDict, total=False):
+    """Timeseries data from a sensor."""
+
+    datetime: NDArray[np.int64]
+    acceleration: NDArray[np.float32]
+    light: NDArray[np.float32] | NDArray[np.uint16]
+    temperature: NDArray[np.float32]
+    battery_voltage: NDArray[np.float32] | NDArray[np.uint16]
+    button_state: NDArray[np.bool_]
+    capsense: NDArray[np.bool_]
+
+
+class ActfastResult(TypedDict):
+    """Result from reading an actigraphy file."""
+
+    format: str
+    metadata: dict[str, dict[str, str]]
+    timeseries: dict[str, TimeseriesData]
+
+
+def read(path: str | PathLike[str]) -> ActfastResult:
+    """Read a raw actigraphy file.
 
     Args:
-        path (Union[str, Path, PathLike]): Path to the file.
+        path: Path to the actigraphy file (.gt3x, .bin).
 
     Returns:
-        Dict[str, Any]: Dictionary with metadata and data.
+        Dictionary containing:
+        - `format`: File format name (e.g., "Actigraph GT3X", "GeneActiv BIN")
+        - `metadata`: Device-specific metadata as nested dicts
+        - `timeseries`: Sensor data with `datetime` (int64 nanoseconds) and sensor arrays
 
     Raises:
-        IOError: If the file is not found or corrupted.
+        ValueError: If the file format is unknown, unsupported, or malformed.
+        OSError: If the file cannot be read.
+
+    Example:
+        >>> data = actfast.read("subject1.gt3x")
+        >>> data["timeseries"]["acceleration"]["datetime"]  # int64 timestamps
+        >>> data["timeseries"]["acceleration"]["acceleration"]  # float32 (n, 3)
     """
     ...

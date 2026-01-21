@@ -1,74 +1,6 @@
-/**
- * Device Identity
-Device Unique Serial Code:101774
-Device Type:GENEActiv
-Device Model:1.2
-Device Firmware Version:Ver06.17 15June23
-Calibration Date:2023-09-07 15:04:34:000
+use crate::error::{ActfastError, FileLocation};
 
-Device Capabilities
-Accelerometer Range:-8 to 8
-Accelerometer Resolution:0.0039
-Accelerometer Units:g
-Light Meter Range:0 to 20000
-Light Meter Resolution:3 to 48
-Light Meter Units:lux
-Temperature Sensor Range:0 to 70
-Temperature Sensor Resolution:0.1
-Temperature Sensor Units:deg. C
-
-Configuration Info
-Measurement Frequency:50 Hz
-Measurement Period:720 Hours
-Start Time:2024-01-11 15:35:30:000
-Time Zone:GMT -05:00
-
-Trial Info
-Study Centre:
-Study Code:
-Investigator ID:
-Exercise Type:
-Config Operator ID:
-Config Time:2024-01-11 14:07:24:471
-Config Notes:
-Extract Operator ID:
-Extract Time:2024-01-31 12:22:13:153
-Extract Notes:(device clock drift -33,078,823.924s)
-
-Subject Info
-Device Location Code:
-Subject Code:5063690
-Date of Birth:1900-01-01
-Sex:
-Height:
-Weight:
-Handedness Code:
-Subject Notes:
-
-Calibration Data
-x gain:24949
-x offset:-813
-y gain:24936
-y offset:-1262
-z gain:25168
-z offset:492
-Volts:60
-Lux:988
-
-Memory Status
-Number of Pages:103717
-
-
-Recorded Data
-Device Unique Serial Code:101774
-Sequence Number:0
-Page Time:2024-01-11 15:35:31:000
-Unassigned:
-Temperature:37.2
-Battery voltage:4.1400
-Device Status:Recording
-Measurement Frequency:50.0
- */
+const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S:%3f";
 
 #[allow(dead_code)]
 pub mod id {
@@ -158,14 +90,15 @@ pub mod id {
     }
 }
 
-pub fn parse_date_time(date_time: &str) -> chrono::DateTime<chrono::Utc> {
-    chrono::NaiveDateTime::parse_from_str(date_time, "%Y-%m-%d %H:%M:%S:%3f")
+pub fn parse_date_time(
+    date_time: &str,
+    location: FileLocation,
+) -> Result<chrono::DateTime<chrono::Utc>, ActfastError> {
+    chrono::NaiveDateTime::parse_from_str(date_time, DATETIME_FORMAT)
         .map(|dt| dt.and_utc())
-        .unwrap_or(chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap())
+        .map_err(|_| ActfastError::InvalidDateTime {
+            value: date_time.to_string(),
+            format: DATETIME_FORMAT,
+            location,
+        })
 }
-
-//pub fn parse_date(date: &str) -> chrono::NaiveDate {
-//    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-//        .unwrap_or(chrono::NaiveDate::from_ymd_opt(1900, 1, 1).unwrap())
-//
-//}

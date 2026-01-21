@@ -1,3 +1,5 @@
+use crate::error::Result;
+
 pub struct MetadataEntry<'a> {
     pub category: &'a str,
     pub key: &'a str,
@@ -15,7 +17,7 @@ pub enum SensorKind {
 }
 
 impl SensorKind {
-    pub fn to_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             SensorKind::Accelerometer => "acceleration",
             SensorKind::Light => "light",
@@ -31,17 +33,14 @@ impl SensorKind {
 pub enum SensorDataDyn<'a> {
     F32(&'a [f32]),
     F64(&'a [f64]),
-
     U8(&'a [u8]),
     U16(&'a [u16]),
     U32(&'a [u32]),
     U64(&'a [u64]),
-
     I8(&'a [i8]),
     I16(&'a [i16]),
     I32(&'a [i32]),
     I64(&'a [i64]),
-
     Bool(&'a [bool]),
 }
 
@@ -62,7 +61,7 @@ pub trait SensorsFormatReader<'a> {
         reader: R,
         metadata_callback: M,
         sensor_table_callback: S,
-    ) -> Result<(), String>
+    ) -> Result<()>
     where
         M: FnMut(MetadataEntry),
         S: FnMut(SensorTable<'a>);
