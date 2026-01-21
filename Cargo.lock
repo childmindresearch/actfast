@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "actfast"
-version = "2.0.0"
+version = "1.2.0"
 dependencies = [
  "assert_approx_eq",
  "bitreader",
