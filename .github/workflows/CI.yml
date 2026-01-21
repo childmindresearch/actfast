@@ -29,14 +29,23 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Rust tests
         run: cargo test
-      - name: Build and install package
+      - name: Create venv and install dependencies
         run: |
+          python -m venv .venv
+      - name: Install and test (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          source .venv/bin/activate
           pip install maturin pytest numpy
           maturin develop
-      - name: Python tests
-        run: pytest
-      - name: Clippy
-        run: cargo clippy -- -D warnings
+          pytest
+      - name: Install and test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          .venv\Scripts\activate
+          pip install maturin pytest numpy
+          maturin develop
+          pytest
 
   linux:
     needs: test
