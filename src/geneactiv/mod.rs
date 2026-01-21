@@ -148,7 +148,7 @@ impl HighFrequencySensorData {
         self.button_state.push(sample.button_state);
     }
 
-    pub fn sensor_table(&self) -> sensors::SensorTable {
+    pub fn sensor_table(&self) -> sensors::SensorTable<'_> {
         sensors::SensorTable {
             name: "high_frequency",
             datetime: &self.time,
@@ -197,7 +197,7 @@ impl LowFrequencySensorData {
         self.battery_voltage.push(battery_voltage);
     }
 
-    pub fn sensor_table(&self) -> sensors::SensorTable {
+    pub fn sensor_table(&self) -> sensors::SensorTable<'_> {
         sensors::SensorTable {
             name: "low_frequency",
             datetime: &self.time,

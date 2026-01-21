@@ -67,7 +67,7 @@ fn read(_py: Python, path: std::path::PathBuf) -> PyResult<Py<PyAny>> {
                 },
                 |category_dict| {
                     category_dict
-                        .downcast::<PyDict>()
+                        .cast::<PyDict>()
                         .unwrap()
                         .set_item(metadata.key, metadata.value)
                         .unwrap();
