@@ -16,6 +16,7 @@ class TimeseriesData(TypedDict, total=False):
 
     datetime: Required[NDArray[np.int64]]
     acceleration: NDArray[np.float32]
+    gyroscope: NDArray[np.float32]
     light: NDArray[np.float32] | NDArray[np.uint16]
     temperature: NDArray[np.float32]
     battery_voltage: NDArray[np.float32] | NDArray[np.uint16]
@@ -36,13 +37,13 @@ def read(path: str | PathLike[str], lenient: bool = False) -> ActfastResult:
     """Read a raw actigraphy file.
 
     Args:
-        path: Path to the actigraphy file (.gt3x, .bin).
+        path: Path to the actigraphy file (.gt3x, .bin, .cwa).
         lenient: If True, return partial data on corruption instead of raising.
             Any issues encountered will be reported in the `warnings` field.
 
     Returns:
         Dictionary containing:
-        - `format`: File format name (e.g., "Actigraph GT3X", "GeneActiv BIN")
+        - `format`: File format name (e.g., "Actigraph GT3X", "GeneActiv BIN", "Axivity CWA")
         - `metadata`: Device-specific metadata as nested dicts
         - `timeseries`: Sensor data with `datetime` (int64 nanoseconds) and sensor arrays
         - `warnings`: List of warnings (only populated when `lenient=True`)

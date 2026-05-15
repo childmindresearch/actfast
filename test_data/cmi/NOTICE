@@ -1,0 +1,16 @@
+CWA test fixtures
+-----------------
+
+`axivity_ax3.cwa` and `axivity_ax6.cwa` are truncated copies (32 sectors = 16 KB
+each) of `ax3_testfile.cwa` and `ax6_testfile.cwa` from the GGIRread project:
+
+    https://github.com/wadpac/GGIRread/tree/main/inst/testfiles
+
+Copyright Medical Research Council UK and Accelting.
+Licensed under the Apache License, Version 2.0:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Modification: truncated to 32 sectors (1024-byte header + 30 data sectors) to
+keep the committed test data small. Truncating a CWA file at a sector boundary
+preserves the format.

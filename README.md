@@ -33,7 +33,7 @@ data = actfast.read("subject1.gt3x")
 |--------|--------------|--------|
 | GT3X | ActiGraph | ✅ |
 | BIN | GENEActiv | ✅ |
-| CWA | Axivity | 🚧 Planned |
+| CWA | Axivity | ✅ |
 
 For standard formats (CSV, SQLite, WAV, Excel), use the appropriate Python standard library or pandas.
 

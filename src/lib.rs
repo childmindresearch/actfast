@@ -1,4 +1,5 @@
 mod actigraph;
+mod axivity;
 mod error;
 mod file_format;
 mod geneactiv;
@@ -112,6 +113,12 @@ fn read(py: Python, path: std::path::PathBuf, lenient: bool) -> PyResult<Py<PyAn
             lenient,
         )?,
         file_format::FileFormat::GeneactivBin => geneactiv::GeneActivReader::new().read(
+            file,
+            metadata_callback,
+            sensor_table_callback,
+            lenient,
+        )?,
+        file_format::FileFormat::AxivityCwa => axivity::AxivityReader::new().read(
             file,
             metadata_callback,
             sensor_table_callback,

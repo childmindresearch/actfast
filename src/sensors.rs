@@ -9,6 +9,7 @@ pub struct MetadataEntry<'a> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SensorKind {
     Accelerometer,
+    Gyroscope,
     Light,
     ButtonState,
     Capacitive,
@@ -20,6 +21,7 @@ impl SensorKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             SensorKind::Accelerometer => "acceleration",
+            SensorKind::Gyroscope => "gyroscope",
             SensorKind::Light => "light",
             SensorKind::ButtonState => "button_state",
             SensorKind::Capacitive => "capsense",
