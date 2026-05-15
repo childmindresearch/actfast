@@ -2,6 +2,9 @@
 
 Fast actigraphy data reader for Python, written in Rust.
 
+> **Status:** feature-complete — supports all major raw binary
+> actigraphy formats (ActiGraph, GENEActiv, Axivity).
+
 ## Installation
 ```bash
 pip install actfast
@@ -29,11 +32,11 @@ data = actfast.read("subject1.gt3x")
 
 ## Supported Formats
 
-| Format | Manufacturer | Status |
-|--------|--------------|--------|
-| GT3X | ActiGraph | ✅ |
-| BIN | GENEActiv | ✅ |
-| CWA | Axivity | ✅ |
+| Format | Manufacturer |
+|--------|--------------|
+| GT3X | ActiGraph |
+| BIN | GENEActiv |
+| CWA | Axivity (AX3, AX6) |
 
 For standard formats (CSV, SQLite, WAV, Excel), use the appropriate Python standard library or pandas.
 
