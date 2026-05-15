@@ -597,9 +597,9 @@ mod tests {
             .unwrap();
         if let sensors::SensorDataDyn::F32(data) = &acceleration.data {
             assert_eq!(data.len(), 6000 * 3);
-            assert_approx_eq!(data[0], 0.943648595, 1e-6);
-            assert_approx_eq!(data[1], 0.038804781, 1e-6);
-            assert_approx_eq!(data[2], 0.093962705, 1e-6);
+            assert_approx_eq!(data[0], 0.943_648_6, 1e-6);
+            assert_approx_eq!(data[1], 0.038_804_78, 1e-6);
+            assert_approx_eq!(data[2], 0.093_962_71, 1e-6);
 
             assert_approx_eq!(data[5999 * 3], 0.084922833, 1e-6);
             assert_approx_eq!(data[5999 * 3 + 1], -0.8376892, 1e-6);
